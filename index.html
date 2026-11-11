@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Inventario CINEX · Operatividad de equipos</title>
+<meta name="theme-color" content="#0a5cad">
+<meta name="description" content="Inventario y operatividad de los cines: estados por componente, plan de trabajo, aprobaciones y auditoría.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Inventario CINEX">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+<header class="top">
+  <h1>Inventario CINEX</h1>
+  <div class="sub" id="subtop">Operatividad de equipos por cine</div>
+</header>
+<nav class="tabs" id="tabs">
+  <button data-tab="resumen" class="on">Resumen</button>
+  <button data-tab="quehacer">Qué hacer</button>
+  <button data-tab="gestion">Gestión</button>
+  <button class="btn-g" id="btn-instalar" style="display:none">⬇ Instalar</button>
+  <button class="rol" id="btn-perfil">Perfil</button>
+</nav>
+<main id="app"></main>
+<div id="flash"></div>
+
+<div class="modal" id="modal">
+  <div class="mbox">
+    <h3>¿Qué le pasó al equipo?</h3>
+    <div class="sb" id="m-sb">Selecciona la causa del fallo</div>
+    <div class="causas" id="m-causas"></div>
+    <input type="text" id="m-det" placeholder="Detalle (opcional): ej. cable de red de3 m a sustituir">
+    <div class="sb" style="margin-bottom:7px">Acción requerida</div>
+    <div class="causas" id="m-accion">
+      <button data-accion="reparar" class="on">Reparar</button>
+      <button data-accion="sustituir">Sustituir</button>
+      <button data-accion="revisar">Revisar</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="m-rev" checked>
+      Enviar a revisión del coordinador</label>
+    <div class="row">
+      <button id="m-no">Cancelar</button>
+      <button class="btn-p" id="m-si">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-p">
+  <div class="mbox">
+    <h3>¿Quién está usando el panel?</h3>
+    <div class="sb">Todo lo que cargues queda a tu nombre en la auditoría.</div>
+    <input type="text" id="p-nombre" placeholder="O escribe tu nombre">
+    <div class="causas" id="p-rol">
+      <button data-rol="soporte">Soporte</button>
+      <button data-rol="coordinacion">Coordinación</button>
+      <button data-rol="infraestructura">Infraestructura</button>
+      <button data-rol="gerencia">Gerencia</button>
+    </div>
+    <div class="causas" id="p-nombres"></div>
+    <div class="sb" style="margin-bottom:12px" id="p-ayuda">
+      <b>Soporte</b> (5) carga estados, equipos y plan ·
+      <b>Coordinación</b> corrige y aprueba ·
+      <b>Infraestructura</b> carga lo suyo y aprueba lo técnico ·
+      <b>Gerencia</b> edita, aprueba montos y ve gráficas y números.</div>
+    </div>
+    <div class="row">
+      <button id="p-salir">Cancelar</button>
+      <button class="btn-p" id="p-si">Entrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-e">
+  <div class="mbox">
+    <h3>Agregar equipo</h3>
+    <div class="sb" id="e-area">Área</div>
+    <input type="text" id="e-nombre" placeholder="Nombre (ej. PC Almacén, TV Lobby 3)">
+    <input type="text" id="e-modelo" placeholder="Modelo (opcional): ej. HP ProDesk 400">
+    <div class="sb" style="margin-bottom:7px">¿Qué componentes tiene?</div>
+    <div class="causas" id="e-plantillas">
+      <button data-plant="pos">Estación POS</button>
+      <button data-plant="pc">PC con monitor</button>
+      <button data-plant="tv">TV / Tablet</button>
+      <button data-plant="simple" class="on">Equipo simple</button>
+      <button data-plant="custom">Personalizar</button>
+    </div>
+    <div class="causas" id="e-comps" style="display:none"></div>
+    <div class="row">
+      <button id="e-no">Cancelar</button>
+      <button class="btn-p" id="e-si">Agregar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal-ed">
+  <div class="mbox">
+    <h3>Editar equipo</h3>
+    <div class="sb" id="ed-sub">—</div>
+    <input type="text" id="ed-nombre" placeholder="Nombre (ej. Taquilla 2, TV Lobby)">
+    <input type="text" id="ed-puesto" placeholder="Posición / puesto (ej. Puesto 3)">
+    <input type="text" id="ed-modelo" placeholder="Modelo (ej. HP ProDesk 400)">
+    <div class="sb" style="margin-bottom:7px">Orden dentro del área</div>
+    <div class="row" style="align-items:center">
+      <button id="ed-arriba">↑ Subir</button>
+      <button id="ed-abajo">↓ Bajar</button>
+      <span class="ad" id="ed-pos" style="flex:1;text-align:right"></span>
+    </div>
+    <div class="row">
+      <button id="ed-no">Cancelar</button>
+      <button class="btn-p" id="ed-si">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
