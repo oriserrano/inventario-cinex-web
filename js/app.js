@@ -57,6 +57,7 @@ try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.pa
 S.notas = S.notas||{}; S.nuevos = S.nuevos||{}; S.mod = S.mod||{}; S.mov = S.mov||{}; S.hist = S.hist||{};
 S.vtid = S.vtid||{}; S.cmod = S.cmod||{};
 S.nomb = S.nomb||{}; S.puesto = S.puesto||{}; S.orden = S.orden||{};
+S.cinesNuevos = S.cinesNuevos||[];
 S.acc = Array.isArray(S.acc)? S.acc : [];
 S.perfil = S.perfil || null;
 S.causas = Array.isArray(S.causas)? S.causas : [];
@@ -244,14 +245,7 @@ function render(){
   const app = document.getElementById('app');
   const y = window.scrollY;
   if(!S.perfil){
-    app.innerHTML = `<div class="bloqueo"><div class="bc">
-      <span class="bico">🔐</span>
-      <h2>Inventario CINEX</h2>
-      <p>Entra con tu nombre y tu clave para ver el inventario.</p>
-      <button class="btn-p" id="btn-entrar-bloq">Entrar</button>
-      <div class="ad">Si eres usuario nuevo, elige tu módulo y crea tu clave
-        en la primera entrada.</div>
-    </div></div>`;
+    app.innerHTML = accesoHTML();
     window.scrollTo(0,0);
     return;
   }
@@ -283,6 +277,27 @@ function sparkline(hist){
   </svg>
   <div style="font-size:11.5px;color:var(--mut)">${fechas[0]} → ${fechas[fechas.length-1]}
     · % de componentes operativos</div>`;
+}
+
+/* Cuánto falta por cine para dejarlo100% operativo */
+function metaCine(c){
+  let comprar = 0, reparar = 0, costo = 0, total = 0, ok = 0, pend = 0;
+  const revisar = it=>{
+    if(it.x){ total++; comprar++; costo += PRECIO_ESTACION; return; }
+    const ests = estadosItem(it);
+    const nombres = it.c? it.c.map(ch=> ETIQ[ch.n]||ch.n) : [it.n];
+    ests.forEach((e, i)=>{
+      total++;
+      if(e==='ok') ok++;
+      else if(e==='pend') pend++;
+      else if(e==='falta'){ comprar++; costo += Number(precioDe(nombres[i]))||0; }
+      else if(e==='malo' || e==='rep') reparar++;
+    });
+  };
+  c.ar.forEach(a=> a.v.forEach(revisar));
+  Object.values(nuevosDe(c)).forEach(arr=> arr.forEach(revisar));
+  return {comprar, reparar, costo, total, ok, pend,
+          pct: total? Math.round(ok/total*100) : 0};
 }
 
 function home(){
@@ -368,6 +383,28 @@ function home(){
       </div>
     ${sparkline(S.hist)}
   </div></div>
+
+  <div class="card secc"><div class="hd"><h2>Meta: dejar cada cine al100%</h2>
+    ${adminUsuarios()? '<button id="nuevo-cine">＋ Nuevo cine</button>' : ''}</div>
+    <div class="bd">
+      <div class="ad" style="margin-bottom:9px">Ordenado de lo más atrás a lo más adelantado.
+        <b>A comprar</b> = equipo que falta · <b>A reparar</b> = dañado o en reparación.</div>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Cine</th><th>Operativo</th><th>A comprar</th><th>A reparar</th>
+          <th>Sin revisar</th><th>Costo compra</th><th></th></tr></thead>
+        <tbody>${DATA.cines.map(c=>({c, m:metaCine(c)}))
+          .sort((a,b)=> a.m.pct - b.m.pct || b.m.comprar - a.m.comprar)
+          .map(({c,m})=>`<tr>
+            <td><b>${c.n}</b></td>
+            <td class="num"><b style="color:${m.pct>=90?'var(--ok)':(m.pct>=70?'#9a6d00':'var(--mal)')}">${m.pct}%</b></td>
+            <td class="num">${m.comprar||'—'}</td>
+            <td class="num">${m.reparar||'—'}</td>
+            <td class="num">${m.pend||'—'}</td>
+            <td class="num">${m.costo? fmt(m.costo):'—'}</td>
+            <td class="num"><button data-cine="${c.c}">Ver</button></td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+    </div></div>
 
   <div class="card secc"><div class="hd"><h2>Alertas</h2>
     ${pend.length?`<span class="badge rev">${pend.length} por revisar</span>`:''}</div>
@@ -637,13 +674,12 @@ function pintarNombres(rol, sel){
     `<button data-pnombre="${n}" class="${n===sel?'on':''}">${n}</button>`).join('');
 }
 function abrirPerfil(){
-  document.getElementById('p-nombre').value = S.perfil? S.perfil.nombre : '';
-  document.querySelectorAll('[data-rol]').forEach(b=>
-    b.classList.toggle('on', !!(S.perfil && b.dataset.rol===S.perfil.rol)));
-  pintarNombres(S.perfil? S.perfil.rol : null, S.perfil? S.perfil.nombre : '');
-  document.getElementById('modal-p').classList.add('on');
+  if(!S.perfil) return;                       // sin perfil la pantalla de acceso ya está
+  scrollObj = 0;
+  vista.tab = 'gestion'; vista.gseccion = 'usuarios';
+  render();
 }
-function cerrarPerfil(){ document.getElementById('modal-p').classList.remove('on'); }
+function cerrarPerfil(){ /* la pantalla de acceso no se cierra: sin perfil no hay panel */ }
 
 /* ================= AGREGAR EQUIPO CON COMPONENTES ================= */
 const COMP_CAT = ['CPU','Monitor principal','Monitor secundario','Teclado','Mouse',
@@ -1001,9 +1037,18 @@ function gestion(){
       <span class="when">${x.ts.slice(5,16).replace('T',' ')}</span>
     </div>`).join('') || '<div class="empty-note">Sin movimientos todavía.</div>';
 
-  const sec = vista.gseccion || "usuarios";
-  const GSEC = [["usuarios","Usuarios"],["aprob","Aprobaciones"],
+  const sec = vista.gseccion || "tablero";
+  const GSEC = [["tablero","Tablero"],["aprob","Aprobaciones"],["usuarios","Usuarios"],
                 ["auditoria","Auditoría"],["personas","Personas"],["exportar","Exportar"]];
+
+  // cifras del tablero gerencial
+  const metas = DATA.cines.map(c=>({c, m:metaCine(c)}));
+  const piezasComprar = metas.reduce((s,x)=> s + x.m.comprar, 0);
+  const costoComprar  = metas.reduce((s,x)=> s + x.m.costo, 0);
+  const aReparar      = metas.reduce((s,x)=> s + x.m.reparar, 0);
+  const sinRevisar    = conteosTotales().pend;
+  const rezagados     = metas.slice()
+    .sort((a,b)=> a.m.pct - b.m.pct || b.m.comprar - a.m.comprar).slice(0,4);
   const gbar = `<div class="gbar">${GSEC.map(([k,t])=>
     `<button data-gsec="${k}" class="${k===sec?"on":""}">${t}${
       k==="aprob" && pend.length? ` <span class="badge rev">${pend.length}</span>`:""}</button>`).join("")}</div>`;
@@ -1020,6 +1065,34 @@ function gestion(){
       <b>Gerencia</b> (Oriana): edita inventario y montos, aprueba el plan y ve las gráficas.</div>
   </div></div>`;
   const tarjetas = {
+    tablero: `<div class="card secc"><div class="hd"><h2>Tablero gerencial</h2>
+      <span class="ad">${DATA.cines.length} cines</span></div><div class="bd">
+      <div class="kpis" style="margin-top:0">
+        <span><b>${piezasComprar}</b> piezas a comprar</span>
+        <span><b>${fmt(costoComprar)}</b> costo estimado</span>
+        <span><b>${aReparar}</b> a reparar</span>
+        <span><b>${sinRevisar}</b> sin revisar</span>
+      </div>
+      <div class="subt">Pendiente de tu decisión</div>
+      ${pend.length? `<div class="alerta">
+          <span class="badge rev">${pend.length}</span>
+          <span style="flex:1"><span class="ti">Cambios esperan aprobación</span><br>
+            <span class="de">${pend.slice(0,2).map(x=>x.cine+' · '+x.eq+' · '+x.comp).join(' — ')}</span></span>
+          <button data-gsec="aprob">Revisar</button></div>`
+        : `<div class="empty-note">No hay cambios esperando aprobación.</div>`}
+      <div class="subt">Cines más rezagados (para llegar al100%)</div>
+      ${rezagados.map(x=>`<div class="alerta">
+          <span class="badge ${x.m.pct>=70?'rev':'mal'}">${x.m.pct}%</span>
+          <span style="flex:1"><span class="ti">${x.c.n}</span><br>
+            <span class="de">comprar ${x.m.comprar} · reparar ${x.m.reparar}${
+              x.m.costo? ' · '+fmt(x.m.costo) : ''}</span></span>
+          <button data-cine="${x.c.c}">Ver</button></div>`).join('')}
+      <div class="rowbtn" style="margin-top:14px">
+        <button class="btn-p" data-gsec="exportar">Exportar resultados</button>
+        <button data-gsec="auditoria">Auditoría</button>
+        <button data-gsec="usuarios">Usuarios</button>
+      </div>
+    </div></div>`,
     usuarios: `<div class="card secc"><div class="hd"><h2>Equipo y módulos</h2>
     ${adminUsuarios()? '<span class="badge rev">admin</span>':''}</div>
     <div class="bd">${roster}
@@ -1119,8 +1192,153 @@ function confirmarModal(){
   flash(rev==='pendiente' ? 'Guardado · en revisión del coordinador' : 'Guardado ✓');
 }
 
+/* ================= DIÁLOGO INTERNO (reemplaza prompt/confirm) ================= */
+let gOp = null, gResolver = null;
+function pedir(op){
+  return new Promise(resolve=>{
+    gOp = op; gResolver = resolve;
+    const m = document.getElementById('modal-gen');
+    document.getElementById('g-tit').textContent = op.titulo || '';
+    const sub = document.getElementById('g-sub');
+    sub.textContent = op.sub || '';
+    sub.hidden = !op.sub;
+    document.getElementById('g-campos').innerHTML = (op.campos||[]).map(c=>{
+      const id = 'g-'+c.id;
+      const val = String(c.value==null? '' : c.value)
+        .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      return `<label class="fld" for="${id}"><span>${c.label}</span>
+        <input type="${c.type||'text'}" id="${id}" name="${id}" value="${val}"
+          placeholder="${c.placeholder||''}" ${c.inputmode? `inputmode="${c.inputmode}"`:''}
+          autocomplete="${c.autocomplete || 'off'}"
+          ${c.type==='password'? 'spellcheck="false"':''}></label>`;
+    }).join('');
+    const err = document.getElementById('g-err');
+    err.hidden = true; err.textContent = '';
+    document.getElementById('g-ok').textContent = op.ok || 'Guardar';
+    m.classList.add('on');
+    setTimeout(()=>{
+      const f = document.querySelector('#g-campos input') || document.getElementById('g-ok');
+      if(f) f.focus();
+    }, 60);
+  });
+}
+function cerrarGen(valor){
+  const m = document.getElementById('modal-gen');
+  if(m) m.classList.remove('on');
+  gOp = null;
+  if(gResolver){ const r = gResolver; gResolver = null; r(valor); }
+}
+function valoresGen(){
+  const o = {};
+  document.querySelectorAll('#g-campos input').forEach(i=>{ o[i.id.replace(/^g-/,'')] = i.value; });
+  return o;
+}
+function errorGen(msg){
+  const e = document.getElementById('g-err');
+  e.textContent = msg; e.hidden = false;
+  const f = document.querySelector('#g-campos input');
+  if(f) f.focus();
+}
+function rolDe(nombre){
+  const u = USU();
+  for(const k in u) if((u[k]||[]).indexOf(nombre)>=0) return k;
+  return 'soporte';
+}
+function iniciales(nombre){
+  return String(nombre||'?').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
+}
+
+/* ================= ACCESO: pantalla de entrada ================= */
+let accesoSel = null;
+function accesoHTML(){
+  const nombres = Object.entries(USU()).flatMap(([rol, arr])=>
+    (arr||[]).map(n=>({n, rol})));
+  const conClave = accesoSel && S.claves[accesoSel];
+  return `<div class="acceso"><div class="card-acceso">
+    <div class="marca">
+      <img src="icons/icon-192.png" alt="" width="44" height="44">
+      <div><b>Inventario CINEX</b><span>Operatividad de los cines</span></div>
+    </div>
+    <h2>Entra al panel</h2>
+    <p class="sub">Elige tu nombre. El módulo lo asigna Coordinación o Gerencia.</p>
+    <div class="nombres" role="group" aria-label="Usuarios del panel">
+      ${nombres.map(x=>`<button type="button" data-acc="${x.n}"
+          class="${x.n===accesoSel? 'on':''}" aria-pressed="${x.n===accesoSel}">
+          <span class="avatar" aria-hidden="true">${iniciales(x.n)}</span>
+          <span>${x.n}</span>
+          <span class="rol">${ROL_TXT[x.rol]||x.rol}</span>
+        </button>`).join('') || '<p class="sub">Sin usuarios: pide alta a Coordinación.</p>'}
+    </div>
+    ${accesoSel? `
+      <label class="fld" for="acc-clave">
+        <span>${conClave? 'Tu clave' : 'Crea tu clave (mínimo3 caracteres)'}</span>
+        <input type="password" id="acc-clave" name="acc-clave"
+          autocomplete="${conClave? 'current-password':'new-password'}"
+          inputmode="numeric" placeholder="••••" spellcheck="false">
+      </label>
+      <p class="err" id="acc-err" role="alert" hidden></p>
+      <button class="btn-p" id="acc-entrar" type="button">Entrar</button>
+      <p class="pie">¿Otro usuario? Elige tu nombre arriba.</p>`
+    : `<p class="pie">Si tu nombre no aparece, pídele a Coordinación o Gerencia
+        que te agregue desde <b>Gestión</b>.</p>`}
+  </div></div>`;
+}
+function entrarAcceso(){
+  const n = accesoSel;
+  if(!n) return;
+  const input = document.getElementById('acc-clave');
+  const err = document.getElementById('acc-err');
+  const pin = (input && input.value || '').trim();
+  const fallo = msg=>{ err.textContent = msg; err.hidden = false; if(input) input.focus(); };
+  const guardada = S.claves[n];
+  if(guardada){
+    if(hashClave(pin) !== guardada) return fallo('Clave incorrecta. Inténtalo otra vez.');
+  } else {
+    if(pin.length < 3) return fallo('La clave debe tener al menos3 caracteres.');
+    S.claves[n] = hashClave(pin);
+  }
+  const rol = rolDe(n);
+  S.perfil = {nombre:n, rol};
+  accesoSel = null;
+  save(); render();
+  flash(guardada? 'Entraste como '+ROL_TXT[rol]+' · '+n : 'Clave creada ✓ Entraste como '+n);
+}
+
+async function cambiarClave(){
+  const n = AUTOR();
+  const r = await pedir({
+    titulo: 'Cambiar mi clave',
+    sub: n + ' · ' + (ROL_TXT[ROL()]||''),
+    campos: [{id:'clave', label:'Nueva clave (mínimo3 caracteres)', type:'password',
+              autocomplete:'new-password'}],
+    ok: 'Guardar clave',
+    validar: v => ((v.clave||'').trim().length < 3)? 'Debe tener al menos3 caracteres.' : null
+  });
+  if(!r) return;
+  S.claves[n] = hashClave(r.clave.trim());
+  save();
+  flash('Clave actualizada ✓');
+}
+
 /* ================= INTERACCIÓN ================= */
-document.addEventListener('click', ev=>{
+document.addEventListener('keydown', ev=>{
+  const gen = document.getElementById('modal-gen');
+  const abierto = gen && gen.classList.contains('on');
+  if(abierto && ev.key==='Enter'){
+    ev.preventDefault();
+    document.getElementById('g-ok').click();
+    return;
+  }
+  if(abierto && ev.key==='Escape'){ ev.preventDefault(); cerrarGen(null); return; }
+  if(!abierto && ev.key==='Enter'){
+    const actual = document.activeElement;
+    if(actual && actual.id==='acc-clave'){ ev.preventDefault(); entrarAcceso(); }
+    return;
+  }
+  if(ev.key==='Escape'){ cerrarEquipo(); cerrarEdicion(); cerrarModal(); }
+});
+
+document.addEventListener('click', async ev=>{
   const t = ev.target;
   if(t.tagName==='INPUT') return;
 
@@ -1132,56 +1350,37 @@ document.addEventListener('click', ev=>{
     render();
     return;
   }
-  if(t.id==='btn-perfil'){ abrirPerfil(); return; }
-  const rolb = t.closest('[data-rol]');
-  if(rolb){
-    [...document.querySelectorAll('[data-rol]')].forEach(b=>b.classList.remove('on'));
-    rolb.classList.add('on');
-    const primero = (USU()[rolb.dataset.rol]||[])[0] || '';
-    pintarNombres(rolb.dataset.rol, primero);
-    document.getElementById('p-nombre').value = primero;
-    return;
-  }
-  const pn = t.closest('[data-pnombre]');
-  if(pn){
-    document.querySelectorAll('[data-pnombre]').forEach(b=>b.classList.remove('on'));
-    pn.classList.add('on');
-    document.getElementById('p-nombre').value = pn.dataset.pnombre;
-    return;
-  }
-  if(t.id==='p-si'){
-    const n = (document.getElementById('p-nombre').value||'').trim();
-    const r = document.querySelector('[data-rol].on');
-    if(!n){ flash('Escribe tu nombre'); return; }
-    if(!r){ flash('Elige el módulo'); return; }
-    const guardada = S.claves[n];
-    if(guardada){
-      const pin = prompt('Clave de '+n+':');
-      if(pin===null) return;
-      if(hashClave(pin.trim())!==guardada){ flash('Clave incorrecta'); return; }
-    } else {
-      const pin = prompt('Crea tu clave para '+n+' (mínimo3 caracteres):');
-      if(pin===null) return;
-      if(pin.trim().length<3){ flash('La clave debe tener al menos3 caracteres'); return; }
-      S.claves[n] = hashClave(pin.trim());
-      flash('Clave creada ✓');
+  // ---------- diálogo interno (antes: prompt/confirm de Chrome) ----------
+  if(t.id==='g-ok'){
+    const vals = valoresGen();
+    if(gOp && gOp.validar){
+      const msg = gOp.validar(vals);
+      if(msg){ errorGen(msg); return; }
     }
-    S.perfil = {nombre:n, rol:r.dataset.rol};
-    save(); cerrarPerfil(); render();
-    flash('Entraste como '+ROL_TXT[S.perfil.rol]+' · '+n);
+    cerrarGen(vals);
     return;
   }
-  if(t.id==='btn-clave'){
-    const n = AUTOR();
-    const nueva = prompt('Nueva clave para '+n+' (mínimo3 caracteres):');
-    if(nueva===null) return;
-    if(nueva.trim().length<3){ flash('La clave debe tener al menos3 caracteres'); return; }
-    S.claves[n] = hashClave(nueva.trim());
-    save(); flash('Clave actualizada ✓');
+  if(t.id==='g-no' || t.id==='modal-gen'){ cerrarGen(null); return; }
+
+  if(t.id==='btn-perfil'){ abrirPerfil(); return; }
+
+  // ---------- acceso ----------
+  const acc = t.closest('[data-acc]');
+  if(acc){
+    accesoSel = acc.dataset.acc;
+    render();
+    setTimeout(()=>{ const i = document.getElementById('acc-clave'); if(i) i.focus(); }, 60);
     return;
   }
-  if(t.id==='p-salir'){ cerrarPerfil(); return; }
-  if(t.id==='btn-perfil2'){ abrirPerfil(); return; }
+  if(t.id==='acc-entrar'){ entrarAcceso(); return; }
+
+  // ---------- cuenta ----------
+  if(t.id==='btn-clave'){ cambiarClave(); return; }
+  if(t.id==='btn-perfil2'){
+    S.perfil = null; accesoSel = null;
+    save(); render(); flash('Saliste del panel ✓');
+    return;
+  }
 
   const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],#btn-area');
   if(editando && !puedeEditar()){ flash('Módulo Gerencia: solo lectura'); return; }
@@ -1193,13 +1392,49 @@ document.addEventListener('click', ev=>{
     S.acc.splice(+acdel.dataset.accdel,1); save(); render(); return;
   }
   if(t.id==='acc-add'){
-    const desc = prompt('Descripción de la acción (ej. Comprar pinpad para dulcería 3):');
-    if(!desc) return;
-    const monto = prompt('Monto estimado (US$):', '');
+    const r = await pedir({
+      titulo:'Nueva acción',
+      sub:'Se agrega al plan de trabajo del cine filtrado.',
+      campos:[
+        {id:'desc', label:'Descripción (ej. Comprar pinpad para dulcería 3)'},
+        {id:'monto', label:'Monto estimado (US$)', inputmode:'decimal', placeholder:'0'}
+      ],
+      ok:'Agregar al plan',
+      validar: v => !(v.desc||'').trim()? 'Escribe qué hay que hacer.' : null
+    });
+    if(!r) return;
     const cineSel = vista.planC!=='todos'? vista.planC : 'Varios';
-    nuevaAccion({comp:desc, cine:cineSel, area:'Varios', tipo:'comprar',
-                 monto: Number(monto)||0});
+    nuevaAccion({comp:r.desc.trim(), cine:cineSel, area:'Varios', tipo:'comprar',
+                 monto: Number(String(r.monto||'').replace(',','.'))||0});
     save(); render(); flash('Acción agregada ✓');
+    return;
+  }
+  if(t.id==='nuevo-cine'){
+    if(!adminUsuarios()){ flash('Solo Coordinación o Gerencia agregan cines'); return; }
+    const r = await pedir({
+      titulo:'Nuevo cine o local',
+      sub:'Aparece en la portada con sus áreas. Después agregas los equipos con + Agregar equipo.',
+      campos:[
+        {id:'nombre', label:'Nombre (ej. Multiplaza Valencia)'},
+        {id:'areas', label:'Áreas separadas por coma',
+         placeholder:'Taquilla, Dulcería, Plasmas'}
+      ],
+      ok:'Crear cine',
+      validar: v => !(v.nombre||'').trim()? 'Escribe el nombre del cine.' : null
+    });
+    if(!r) return;
+    const nombre = r.nombre.trim();
+    let cod = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase();
+    if(!cod) cod = 'CN' + (S.cinesNuevos.length+1);
+    while(DATA.cines.some(c=>c.c===cod)) cod = cod.slice(0,2) + (Math.floor(Math.random()*9)+1);
+    const areas = (r.areas||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const cine = {n:nombre, c:cod, ar:(areas.length? areas : ['Por definir'])
+      .map(a=>({a, v:[], vacio:false}))};
+    S.cinesNuevos.push(cine);
+    DATA.cines.push(cine);
+    save(); render();
+    flash(nombre+' creado ✓ código '+cod);
     return;
   }
   if(t.id==='prec-aplicar'){
@@ -1245,7 +1480,10 @@ document.addEventListener('click', ev=>{
     if(!adminUsuarios()){ flash('Solo Gerencia y Coordinación administran usuarios'); return; }
     const raw = udel.dataset.userdel, k = raw.indexOf('|');
     const rol = raw.slice(0,k), n = raw.slice(k+1);
-    if(!confirm('Quitar a '+n+' de '+ROL_TXT[rol]+'?')) return;
+    const seguro = await pedir({titulo:'Quitar usuario',
+      sub:n+' · '+ROL_TXT[rol]+'. Dejará de aparecer en la pantalla de acceso.',
+      campos:[], ok:'Sí, quitar'});
+    if(!seguro) return;
     const u = USU();
     u[rol] = (u[rol]||[]).filter(x=>x!==n);
     save(); render(); flash(n+' quitado ✓');
@@ -1255,7 +1493,10 @@ document.addEventListener('click', ev=>{
   if(creset){
     if(!adminUsuarios()){ flash('Solo Gerencia y Coordinación administran usuarios'); return; }
     const n = creset.dataset.clavereset;
-    if(!confirm('Reiniciar la clave de '+n+'? Tendrá que crearla de nuevo.')) return;
+    const seguro = await pedir({titulo:'Reiniciar clave',
+      sub:n+' tendrá que crear una clave nueva en su próximo ingreso.',
+      campos:[], ok:'Sí, reiniciar'});
+    if(!seguro) return;
     delete S.claves[n];
     save(); render(); flash('Clave de '+n+' reiniciada ✓');
     return;
@@ -1288,8 +1529,12 @@ document.addEventListener('click', ev=>{
       return;
     }
     const i = +rech.dataset.rechazar;
-    const motivo = prompt('Motivo del rechazo / corrección:');
-    if(!motivo) return;
+    const rr = await pedir({titulo:'Rechazar o corregir',
+      sub:'El motivo queda en la auditoría con tu nombre.',
+      campos:[{id:'motivo', label:'Motivo'}], ok:'Rechazar cambio',
+      validar: v => !(v.motivo||'').trim()? 'Escribe el motivo del rechazo.' : null});
+    if(!rr) return;
+    const motivo = rr.motivo.trim();
     if(S.mov[i]){ S.mov[i].rev='rechazado'; S.mov[i].com=motivo;
       S.mov[i].rap=new Date().toISOString(); S.mov[i].aprobadoPor=AUTOR(); }
     save(); render(); flash('Cambio rechazado');
@@ -1305,9 +1550,13 @@ document.addEventListener('click', ev=>{
     return;
   }
   if(t.closest('[data-causa-nueva]')){
-    const v = prompt('Nueva causa de daño (aparecerá en el panel):');
-    if(v && v.trim()){
-      const nueva = v.trim();
+    const rc = await pedir({titulo:'Nueva causa de daño',
+      sub:'Aparecerá en la lista al marcar un equipo dañado.',
+      campos:[{id:'causa', label:'Nombre de la causa', placeholder:'Ej. Cinta transportadora'}],
+      ok:'Agregar causa',
+      validar: v => !(v.causa||'').trim()? 'Escribe la causa.' : null});
+    if(rc){
+      const nueva = rc.causa.trim();
       if(!S.causas.includes(nueva)) S.causas.push(nueva);
       mCausa = nueva; save(); pintarCausas(nueva);
       flash('Causa agregada ✓');
@@ -1361,8 +1610,12 @@ document.addEventListener('click', ev=>{
   const mod = t.closest('[data-mod]');
   if(mod){
     const id = mod.dataset.mod;
-    const v = prompt('Modelo del equipo:', modeloDe(findItem(id))||'');
-    if(v!==null){ S.mod[id]=v.trim(); save(); render(); flash('Modelo guardado ✓'); }
+    const it0 = findItem(id);
+    const rv = await pedir({titulo:'Modelo del equipo',
+      sub: it0? nombreDe(it0) : '',
+      campos:[{id:'v', label:'Modelo', value: modeloDe(it0)||'', placeholder:'Ej. HP ProDesk 400'}],
+      ok:'Guardar modelo'});
+    if(rv){ S.mod[id]=rv.v.trim(); save(); render(); flash('Modelo guardado ✓'); }
     return;
   }
   const cmod = t.closest('[data-cmod]');
@@ -1371,9 +1624,12 @@ document.addEventListener('click', ev=>{
     const id = raw.slice(0,k), ci = +raw.slice(k+1);
     const it = findItem(id);
     const ch = it && it.c ? it.c[ci] : null;
-    const v = prompt('Modelo de '+(ch? ch.n.toLowerCase():'componente')+':',
-      S.cmod[raw] || (ch && !esVacio(ch.v)? ch.v : ''));
-    if(v!==null){ S.cmod[raw]=v.trim(); save(); render(); flash('Modelo guardado ✓'); }
+    const rcv = await pedir({titulo:'Modelo del componente',
+      sub: ch? ch.n : 'Componente',
+      campos:[{id:'v', label:'Modelo / número de serie',
+               value: S.cmod[raw] || (ch && !esVacio(ch.v)? ch.v : '')}],
+      ok:'Guardar modelo'});
+    if(rcv){ S.cmod[raw]=rcv.v.trim(); save(); render(); flash('Modelo guardado ✓'); }
     return;
   }
   const comp = t.closest('[data-comp]');
@@ -1412,8 +1668,17 @@ document.addEventListener('click', ev=>{
   const nota = t.closest('[data-note]');
   if(nota){
     const id = nota.dataset.note;
-    const v = prompt('Nota / observación:', S.notas[id]||'');
-    if(v!==null){ if(v.trim()) S.notas[id]=v.trim(); else delete S.notas[id]; save(); render(); }
+    const rn = await pedir({titulo:'Nota / observación',
+      sub:'Déjala vacía para borrar la nota actual.',
+      campos:[{id:'v', label:'Nota', value: S.notas[id]||'',
+               placeholder:'Ej. Repuesto pedido, llega el viernes'}],
+      ok:'Guardar nota'});
+    if(rn){
+      if(rn.v.trim()) S.notas[id] = rn.v.trim();
+      else delete S.notas[id];
+      save(); render();
+      flash('Nota guardada ✓');
+    }
     return;
   }
   const ok = t.closest('[data-ok]');
@@ -1474,7 +1739,7 @@ document.addEventListener('keydown', ev=>{
     const btn = document.querySelector(`[data-add="${CSS.escape(ev.target.dataset.addInput)}"]`);
     if(btn) btn.click();
   }
-  if(ev.key==='Escape'){ if(mPend) cerrarModal(); cerrarEquipo(); cerrarPerfil(); cerrarEdicion(); }
+  // Escape se maneja en el listener de teclado (arriba)
 });
 
 document.addEventListener('change', ev=>{
@@ -1582,12 +1847,15 @@ function exportarPlan(){
   bajar('plan-trabajo-cinex-'+hoy()+'.csv', filas);
 }
 
+if(S.cinesNuevos.length){
+  S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
+}
 ensureIds();
 document.getElementById('subtop').textContent =
   'Operatividad de equipos · ' + DATA.cines.length + ' cines · base ' + DATA.gen;
 save();
 render();
-if(!S.perfil) setTimeout(()=>abrirPerfil(), 350);
+accesoSel = null;
 
 /* ================= PWA: instalable y sin conexión ================= */
 let pwaPrompt = null;
