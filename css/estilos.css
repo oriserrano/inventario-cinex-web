@@ -373,6 +373,9 @@ button:active{transform:translateY(1px)}
 .grupo[open]>summary{background:#f4f8fc;border-bottom:1px solid var(--line)}
 .gbd{padding:10px;display:flex;flex-direction:column;gap:9px;background:#fbfcfd}
 .tbl tfoot td{border-top:2px solid var(--line);font-weight:800;background:#f7fafc}
+.grupo.sub{border-color:#e3e9ef;box-shadow:none}
+.grupo.sub>summary{padding-left:20px;font-size:13px;min-height:44px;background:#fcfdfe}
+.grupo.sub .gk{font-weight:600;color:var(--ink)}
 
 /* Campos de formulario con etiqueta */
 .fld{display:block;margin-bottom:12px}

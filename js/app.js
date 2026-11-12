@@ -289,6 +289,22 @@ let vista = {tab:'resumen', modo:'home', cine:null, filtro:'all', areaF:'todas',
              planF:'todo', planC:'todos'};
 let scrollObj = null;                 // null = mantener la posición actual
 
+// recordar qué grupos de "Qué hacer" están abiertos (sin redibujar)
+document.addEventListener('toggle', e=>{
+  const d = e.target;
+  if(!d.dataset || d.dataset.gkey===undefined) return;
+  if(vista.planAbrirTodo && !d.open){
+    vista.planAbrirTodo = false;
+    vista.planAbiertos = [...document.querySelectorAll('details.grupo[data-gkey][open]')]
+      .map(x=>x.dataset.gkey);
+    return;
+  }
+  const arr = Array.isArray(vista.planAbiertos)? vista.planAbiertos : [];
+  const k = d.dataset.gkey, i = arr.indexOf(k);
+  if(d.open){ if(i<0) arr.push(k); } else if(i>=0) arr.splice(i, 1);
+  vista.planAbiertos = arr;
+}, true);
+
 function render(){
   const app = document.getElementById('app');
   const y = window.scrollY;
@@ -1176,12 +1192,8 @@ function queHacer(){
 
   /* ---------- C) ACCIONES AGRUPADAS (acordeón, sin scroll infinito) ---------- */
   const lista = S.acc.filter(a=> (F==='todo'||a.tipo===F) && (C==='todos'||a.cine===C));
-  const clave = a => G==='tipo'
-    ? (ETIQ[a.comp]||a.comp)
-    : (a.cine + ' · ' + (a.eq || a.area || '—'));
-  const grupos = {};
-  lista.forEach(a=>{ const k = clave(a); (grupos[k] = grupos[k]||[]).push(a); });
-  const orden = Object.keys(grupos).sort((x,y)=> grupos[y].length-grupos[x].length);
+  const abiertos = Array.isArray(vista.planAbiertos)? vista.planAbiertos : [];
+  const esta = k => vista.planAbrirTodo || abiertos.indexOf(k)>=0;
 
   const fila = a=>{
     const idx = S.acc.indexOf(a);
@@ -1212,20 +1224,39 @@ function queHacer(){
     </div>`;
   };
 
-  const acordeon = orden.length? orden.map(k=>{
-    const filas = grupos[k];
-    const monto = suma(filas);
-    const abierto = vista.planAbierto==='*' || vista.planAbierto===k;
-    return `<details class="grupo" ${abierto?'open':''}>
-      <summary data-gk="${k.replace(/"/g,'&quot;')}">
-        <span class="gk">${k}</span>
-        <span class="gnum">${filas.length} ${filas.length===1?'acción':'acciones'}</span>
-        <span class="gmonto">${fmt(monto)}</span>
-        <span class="gcar" aria-hidden="true">▾</span>
-      </summary>
-      <div class="gbd">${filas.map(fila).join('')}</div>
-    </details>`;
-  }).join('') : '<div class="empty-note">Sin acciones para este filtro.</div>';
+  const cab = (k, titulo, filas) => `<summary data-gk="${String(k).replace(/"/g,'&quot;')}">
+      <span class="gk">${titulo}</span>
+      <span class="gnum">${filas.length} ${filas.length===1?'acción':'acciones'}</span>
+      <span class="gmonto">${fmt(suma(filas))}</span>
+      <span class="gcar" aria-hidden="true">▾</span></summary>`;
+
+  let acordeon = '';
+  if(G==='tipo'){
+    const grupos = {};
+    lista.forEach(a=>{ const k = ETIQ[a.comp]||a.comp; (grupos[k]=grupos[k]||[]).push(a); });
+    const orden = Object.keys(grupos).sort((x,y)=> grupos[y].length-grupos[x].length);
+    acordeon = orden.map(k=>`<details class="grupo" data-gkey="${k.replace(/"/g,'&quot;')}"
+        ${esta(k)?'open':''}>${cab(k, k, grupos[k])}
+      <div class="gbd">${grupos[k].map(fila).join('')}</div></details>`).join('');
+  } else {
+    const porC = {};
+    lista.forEach(a=>{ (porC[a.cine]=porC[a.cine]||[]).push(a); });
+    const cineOrden = Object.keys(porC).sort((x,y)=> porC[y].length-porC[x].length);
+    acordeon = cineOrden.map(cine=>{
+      const filas = porC[cine];
+      const subs = {};
+      filas.forEach(a=>{ const k = ETIQ[a.comp]||a.comp; (subs[k]=subs[k]||[]).push(a); });
+      const subOrden = Object.keys(subs).sort((x,y)=> subs[y].length-subs[x].length);
+      return `<details class="grupo" data-gkey="${cine}" ${esta(cine)?'open':''}>
+          ${cab(cine, cine, filas)}
+          <div class="gbd">${subOrden.map(k=>`<details class="grupo sub"
+              data-gkey="${(cine+'|'+k).replace(/"/g,'&quot;')}" ${esta(cine+'|'+k)?'open':''}>
+              ${cab(cine+'|'+k, k, subs[k])}
+              <div class="gbd">${subs[k].map(fila).join('')}</div></details>`).join('')}</div>
+        </details>`;
+    }).join('');
+  }
+  if(!acordeon) acordeon = '<div class="empty-note">Sin acciones para este filtro.</div>';
 
   return `
   <div class="kpi">
@@ -1906,12 +1937,12 @@ document.addEventListener('click', async ev=>{
   const pg = t.closest('[data-pg]');
   if(pg){ vista.planG = pg.dataset.pg; render(); return; }
   const pga = t.closest('[data-pg-abrir]');
-  if(pga){ vista.planAbierto = pga.dataset.pgAbrir==='todo'? '*' : null; render(); return; }
+  if(pga){
+    if(pga.dataset.pgAbrir==='todo'){ vista.planAbrirTodo = true; }
+    else { vista.planAbrirTodo = false; vista.planAbiertos = []; }
+    render(); return; }
   const pcs = t.closest('[data-pc-set]');
   if(pcs){ vista.planC = pcs.dataset.pcSet; render(); return; }
-  // abrir/cerrar un grupo sin redibujar (se recuerda al volver a renderizar)
-  const sm = t.closest('summary[data-gk]');
-  if(sm){ vista.planAbierto = sm.parentElement.open? null : sm.dataset.gk; return; }
   const acdel = t.closest('[data-accdel]');
   if(acdel){
     S.acc.splice(+acdel.dataset.accdel,1); save(); render(); return;
