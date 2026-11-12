@@ -380,6 +380,16 @@ button:active{transform:translateY(1px)}
 .grupo.sub>summary{padding-left:20px;font-size:13px;min-height:44px;background:#fcfdfe}
 .grupo.sub .gk{font-weight:600;color:var(--ink)}
 
+/* Resumen general: las cifras son filtros */
+.kpi-f{background:none;border:0;font:inherit;color:inherit;cursor:pointer;padding:7px 9px;
+  border-radius:10px;min-height:44px;text-align:left;font-family:inherit}
+.kpi-f:hover{background:#f1f6fb}
+.flist{display:flex;flex-direction:column;gap:6px;max-height:460px;overflow:auto}
+.frow{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);
+  border-radius:10px;font-size:13.5px;background:#fff}
+.frow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.frow button{min-height:36px;padding:6px 11px;font-size:12.5px;flex:none}
+
 /* Visitas: formulario, checklist, firma e historial */
 .vform{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 @media (max-width:640px){ .vform{grid-template-columns:1fr} }

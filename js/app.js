@@ -1,8 +1,8 @@
-const CICLO = ['ok','rep','malo','falta'];
+const CICLO = ['ok','malo','rep','falta','pend'];   // operativo → dañado → reparación → falta → sin revisar
 const LABEL = {ok:'Operativo', rep:'En reparación', malo:'Dañado', falta:'Falta', pend:'Sin revisar'};
 const CORTO = {ok:'OK', rep:'REP', malo:'MALO', falta:'FALTA', pend:'SIN REVISAR'};
 const CORTOC = {ok:'OK', rep:'REP', malo:'MALO', falta:'FALTA', pend:'N/R'};
-const siguiente = e => e==='pend' ? 'ok' : CICLO[(CICLO.indexOf(e)+1) % 4];
+const siguiente = e => CICLO[(CICLO.indexOf(e)+1) % CICLO.length];
 const seg = p => `width:${p}%;${p>0?'min-width:5px;':''}`;
 const CAUSAS = ['Cable / conector','Pantalla o táctil','Pinpad','Impresora','Dispositivo fiscal',
                 'Red / cable de red','Fuente o UPS','Mecánico','Otro'];
@@ -456,6 +456,42 @@ function borradorVisita(){
   return {cine: vista.cine || (DATA.cines[0] && DATA.cines[0].c), fecha: fechaHoy(),
           areas:[], check:{}, obs:'', firma:null};
 }
+/* Lista global de componentes en un estado (para los clics del Resumen general) */
+function listaGlobal(est){
+  const out = [];
+  DATA.cines.forEach(c=> c.ar.forEach(a=> vivos(a.v).forEach(it=>{
+    if(S.borrados.indexOf(it.id)>=0) return;
+    if(est==='vacias'){ if(it.x) out.push({cine:c.c, cn:c.n, area:a.a, eq:it.n, comp:'—'}); return; }
+    if(it.x || RETIRADO(it)) return;
+    const e = S.est[it.id] || {};
+    if(it.c) it.c.forEach((ch,i)=>{
+      const s = (e[i]!==undefined? e[i] : ch.e) || 'pend';
+      if(s===est) out.push({cine:c.c, cn:c.n, area:a.a, eq:it.n, comp:ETIQ[ch.n]||ch.n});
+    });
+    else {
+      const s = (e.e!==undefined? e.e : it.e) || 'pend';
+      if(s===est) out.push({cine:c.c, cn:c.n, area:a.a, eq:it.n, comp:it.n});
+    }
+  })));
+  return out;
+}
+function tarjetaFiltro(){
+  const est = vista.gf;
+  const filas = listaGlobal(est);
+  const mostrar = vista.gfTodo? filas : filas.slice(0,60);
+  const tit = {ok:'operativos', rep:'en reparación', malo:'dañados',
+               falta:'faltantes', pend:'sin revisar', vacias:'puestos sin equipo'}[est] || est;
+  return `<div class="card secc"><div class="hd"><h2>${filas.length} ${tit}</h2>
+    <span class="ad">${vista.gfTodo? 'lista completa' : 'mostrando '+mostrar.length}</span>
+    <button data-gfclose>Cerrar</button></div><div class="bd">
+    ${filas.length? `<div class="flist">${mostrar.map(f=>`<div class="frow">
+        <span><b>${f.cn}</b> · ${f.area} · ${f.eq}${f.comp!=='—'? ' · '+f.comp:''}</span>
+        <button data-gfcine="${f.cine}">Ver cine</button></div>`).join('')}</div>`
+      : '<div class="empty-note">Nada en este estado ✓</div>'}
+    ${(!vista.gfTodo && filas.length>mostrar.length)?
+      `<div class="rowbtn"><button data-gfall>Ver las ${filas.length}</button></div>`:''}
+  </div></div>`;
+}
 function visitas(){
   if(!vista.vis) vista.vis = borradorVisita();
   const v = vista.vis;
@@ -606,15 +642,16 @@ function home(){
         <i class="pendseg" style="${seg(pj('pend'))}"></i>
       </div>
       <div class="kpis" style="margin-top:9px">
-        <span><b style="color:var(--ok)">${tot.ok}</b> operativos</span>
-        <span><b style="color:#9a6d00">${tot.rep}</b> reparación</span>
-        <span><b style="color:var(--mal)">${tot.malo}</b> dañados</span>
-        <span><b>${tot.falta}</b> faltantes</span>
-        <span><b>${tot.pend}</b> sin revisar</span>
-        ${tot.vacias? `<span><b>${tot.vacias}</b> puestos sin equipo</span>`:''}
+        <button class="kpi-f" data-gf="ok"><b style="color:var(--ok)">${tot.ok}</b> operativos</button>
+        <button class="kpi-f" data-gf="rep"><b style="color:#9a6d00">${tot.rep}</b> reparación</button>
+        <button class="kpi-f" data-gf="malo"><b style="color:var(--mal)">${tot.malo}</b> dañados</button>
+        <button class="kpi-f" data-gf="falta"><b>${tot.falta}</b> faltantes</button>
+        <button class="kpi-f" data-gf="pend"><b>${tot.pend}</b> sin revisar</button>
+        ${tot.vacias? `<button class="kpi-f" data-gf="vacias"><b>${tot.vacias}</b> puestos sin equipo</button>`:''}
         ${tot.retirados? `<span><b>${tot.retirados}</b> retirados</span>`:''}
       </div>
     </div></div>
+  ${vista.gf? tarjetaFiltro():''}
 
   ${ROL()!=='soporte'? `<div class="card secc cola-focus">
     <div class="hd"><h2>Cola de revisión</h2>
@@ -2144,6 +2181,15 @@ document.addEventListener('click', async ev=>{
     vista.planLimit[k] = (vista.planLimit[k] || 12) + 60;
     render(); return;
   }
+  const gf = t.closest('[data-gf]');
+  if(gf){ vista.gf = (vista.gf===gf.dataset.gf? null : gf.dataset.gf);
+    vista.gfTodo = false; render(); return; }
+  if(t.closest('[data-gfclose]')){ vista.gf = null; render(); return; }
+  if(t.closest('[data-gfall]')){ vista.gfTodo = true; render(); return; }
+  const gfc = t.closest('[data-gfcine]');
+  if(gfc){ vista.gf = null; vista.tab='resumen'; vista.modo='cine';
+    vista.cine = gfc.dataset.gfcine; scrollObj = 0; render(); return; }
+
   const pcs = t.closest('[data-pc-set]');
   if(pcs){ vista.planC = pcs.dataset.pcSet; render(); return; }
   const acdel = t.closest('[data-accdel]');
