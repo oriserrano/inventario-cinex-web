@@ -1224,6 +1224,16 @@ function queHacer(){
     </div>`;
   };
 
+  const LIM = 12;
+  const limite = k => (vista.planLimit && vista.planLimit[k]) || LIM;
+  const cuerpo = (k, filas)=>{
+    const n = limite(k);
+    const ver = filas.slice(0, n);
+    const resto = filas.length - ver.length;
+    return ver.map(fila).join('') + (resto>0
+      ? `<button class="mas" data-accmas="${String(k).replace(/"/g,'&quot;')}">
+           Ver ${resto} ${resto===1?'más acción':'más acciones'} (de ${filas.length})</button>` : '');
+  };
   const cab = (k, titulo, filas) => `<summary data-gk="${String(k).replace(/"/g,'&quot;')}">
       <span class="gk">${titulo}</span>
       <span class="gnum">${filas.length} ${filas.length===1?'acción':'acciones'}</span>
@@ -1237,7 +1247,7 @@ function queHacer(){
     const orden = Object.keys(grupos).sort((x,y)=> grupos[y].length-grupos[x].length);
     acordeon = orden.map(k=>`<details class="grupo" data-gkey="${k.replace(/"/g,'&quot;')}"
         ${esta(k)?'open':''}>${cab(k, k, grupos[k])}
-      <div class="gbd">${grupos[k].map(fila).join('')}</div></details>`).join('');
+      <div class="gbd">${cuerpo(k, grupos[k])}</div></details>`).join('');
   } else {
     const porC = {};
     lista.forEach(a=>{ (porC[a.cine]=porC[a.cine]||[]).push(a); });
@@ -1252,7 +1262,7 @@ function queHacer(){
           <div class="gbd">${subOrden.map(k=>`<details class="grupo sub"
               data-gkey="${(cine+'|'+k).replace(/"/g,'&quot;')}" ${esta(cine+'|'+k)?'open':''}>
               ${cab(cine+'|'+k, k, subs[k])}
-              <div class="gbd">${subs[k].map(fila).join('')}</div></details>`).join('')}</div>
+              <div class="gbd">${cuerpo(cine+'|'+k, subs[k])}</div></details>`).join('')}</div>
         </details>`;
     }).join('');
   }
@@ -1941,6 +1951,13 @@ document.addEventListener('click', async ev=>{
     if(pga.dataset.pgAbrir==='todo'){ vista.planAbrirTodo = true; }
     else { vista.planAbrirTodo = false; vista.planAbiertos = []; }
     render(); return; }
+  const am = t.closest('[data-accmas]');
+  if(am){
+    vista.planLimit = vista.planLimit || {};
+    const k = am.dataset.accmas;
+    vista.planLimit[k] = (vista.planLimit[k] || 12) + 60;
+    render(); return;
+  }
   const pcs = t.closest('[data-pc-set]');
   if(pcs){ vista.planC = pcs.dataset.pcSet; render(); return; }
   const acdel = t.closest('[data-accdel]');
