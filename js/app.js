@@ -58,6 +58,8 @@ S.notas = S.notas||{}; S.nuevos = S.nuevos||{}; S.mod = S.mod||{}; S.mov = S.mov
 S.vtid = S.vtid||{}; S.cmod = S.cmod||{};
 S.nomb = S.nomb||{}; S.puesto = S.puesto||{}; S.orden = S.orden||{};
 S.cinesNuevos = S.cinesNuevos||[];
+S.borrados = S.borrados||[];
+S.retirados = S.retirados||{};
 S.acc = Array.isArray(S.acc)? S.acc : [];
 S.perfil = S.perfil || null;
 S.causas = Array.isArray(S.causas)? S.causas : [];
@@ -115,6 +117,7 @@ function ensureIds(){
 }
 function findItem(id){
   let res=null;
+  if(S.borrados.indexOf(id)>=0) return null;
   DATA.cines.forEach(c=> c.ar.forEach(a=> a.v.forEach(it=>{ if(it.id===id) res=it; })));
   DATA.cines.forEach(c=> (S.nuevos[c.c]||[]).forEach(it=>{ if(it.id===id) res=it; }));
   return res;
@@ -155,21 +158,26 @@ function nuevoDe(id, idx, a, causa, rev){
   return true;
 }
 function conteos(c){
-  const r = {ok:0,rep:0,malo:0,falta:0,pend:0,total:0};
-  const recorre = items => items.forEach(it=> estadosItem(it).forEach(s=>{ r[s]++; r.total++; }));
+  const r = {ok:0,rep:0,malo:0,falta:0,pend:0,total:0,vacias:0};
+  const recorre = items => vivos(items).forEach(it=>{
+    if(it.x){ r.vacias++; return; }        // puesto sin equipo: no cuenta componentes
+    if(RETIRADO(it)){ r.retirados++; return; }   // retirado
+    estadosItem(it).forEach(s=>{ r[s]++; r.total++; });
+  });
   c.ar.forEach(a=> recorre(a.v));
   Object.values(nuevosDe(c)).forEach(recorre);
   return r;
 }
 function conteosTotales(){
-  const t = {ok:0,rep:0,malo:0,falta:0,pend:0,total:0};
-  DATA.cines.forEach(c=>{ const r=conteos(c); for(const k in t) t[k]+=r[k]; });
+  const t = {ok:0,rep:0,malo:0,falta:0,pend:0,total:0,vacias:0,retirados:0};
+  DATA.cines.forEach(c=>{ const r=conteos(c); for(const k in t) t[k]+=(r[k]||0); });
   return t;
 }
 const esMalo = x => x==='malo'||x==='rep'||x==='falta';
 function mejora(c){
   const o = {mej:0, emp:0, sin:0};
-  const cmp = items => items.forEach(it=>{
+  const cmp = items => vivos(items).forEach(it=>{
+    if(it.x || RETIRADO(it)) return;              // sin equipo o retirado: no cuenta
     const e = S.est[it.id]||{}, b = BASE[it.id]||{};
     if(it.c) it.c.forEach((ch,ci)=>{ const a=e[ci], z=b[ci];
       if(z===undefined) return;
@@ -187,7 +195,7 @@ function mejora(c){
   return o;
 }
 function nuevosDe(c){
-  const arr = S.nuevos[c.c] || [];
+  const arr = (S.nuevos[c.c] || []).filter(it=> !BORRADO(it));
   const porArea = {};
   arr.forEach(it=>{ (porArea[it.area] = porArea[it.area]||[]).push(it); });
   return porArea;
@@ -239,7 +247,8 @@ function vtidHtml(it){
 }
 
 /* ================= VISTA ================= */
-let vista = {tab:'resumen', modo:'home', cine:null, filtro:'all', planF:'todo', planC:'todos'};
+let vista = {tab:'resumen', modo:'home', cine:null, filtro:'all', areaF:'todas',
+             planF:'todo', planC:'todos'};
 let scrollObj = null;                 // null = mantener la posición actual
 
 function render(){
@@ -250,11 +259,18 @@ function render(){
     window.scrollTo(0,0);
     return;
   }
+  const permitidos = tabsPermitidos();
+  if(permitidos.indexOf(vista.tab)<0){          // módulo sin acceso a esa pestaña
+    vista.tab = 'resumen'; vista.modo = 'home'; vista.cine = null; scrollObj = 0;
+  }
   if(vista.tab==='quehacer') app.innerHTML = queHacer();
   else if(vista.tab==='gestion') app.innerHTML = gestion();
   else app.innerHTML = vista.modo==='home' ? home() : cineVista(DATA.cines.find(c=>c.c===vista.cine));
-  document.querySelectorAll('[data-tab]').forEach(b=>
-    b.classList.toggle('on', b.dataset.tab===vista.tab));
+  document.querySelectorAll('[data-tab]').forEach(b=>{
+    const ok = permitidos.indexOf(b.dataset.tab)>=0;
+    b.hidden = !ok;
+    b.classList.toggle('on', ok && b.dataset.tab===vista.tab);
+  });
   const bp = document.getElementById('btn-perfil');
   if(bp) bp.textContent = S.perfil ? AUTOR().split(' ')[0] : 'Perfil';
   const destino = scrollObj===null ? y : scrollObj;
@@ -282,9 +298,10 @@ function sparkline(hist){
 
 /* Cuánto falta por cine para dejarlo100% operativo */
 function metaCine(c){
-  let comprar = 0, reparar = 0, costo = 0, total = 0, ok = 0, pend = 0;
+  let comprar = 0, reparar = 0, costo = 0, total = 0, ok = 0, pend = 0, vacias = 0;
   const revisar = it=>{
-    if(it.x){ total++; comprar++; costo += PRECIO_ESTACION; return; }
+    if(BORRADO(it) || RETIRADO(it)) return; // borrado o retirado: no entra en la meta
+    if(it.x){ vacias++; comprar++; costo += PRECIO_ESTACION; return; }
     const ests = estadosItem(it);
     const nombres = it.c? it.c.map(ch=> ETIQ[ch.n]||ch.n) : [it.n];
     ests.forEach((e, i)=>{
@@ -297,7 +314,7 @@ function metaCine(c){
   };
   c.ar.forEach(a=> a.v.forEach(revisar));
   Object.values(nuevosDe(c)).forEach(arr=> arr.forEach(revisar));
-  return {comprar, reparar, costo, total, ok, pend,
+  return {comprar, reparar, costo, total, ok, pend, vacias,
           pct: total? Math.round(ok/total*100) : 0};
 }
 
@@ -343,10 +360,6 @@ function home(){
   }).join('');
 
   return `
-  <div class="banner">Estados base = render 2025 + reportes de Operaciones. Toca cada componente:
-    <b>Sin revisar → Operativo → En reparación → Dañado → Falta</b>. Al marcar daño pide la causa
-    y queda en revisión del coordinador.</div>
-
   <div class="card secc"><div class="hd"><h2>Resumen general</h2>
     <span style="font-size:12px;color:var(--mut)">${tot.total} componentes</span></div>
     <div class="bd">
@@ -363,6 +376,8 @@ function home(){
         <span><b style="color:var(--mal)">${tot.malo}</b> dañados</span>
         <span><b>${tot.falta}</b> faltantes</span>
         <span><b>${tot.pend}</b> sin revisar</span>
+        ${tot.vacias? `<span><b>${tot.vacias}</b> puestos sin equipo</span>`:''}
+        ${tot.retirados? `<span><b>${tot.retirados}</b> retirados</span>`:''}
       </div>
     </div></div>
 
@@ -385,7 +400,7 @@ function home(){
     ${sparkline(S.hist)}
   </div></div>
 
-  <div class="card secc"><div class="hd"><h2>Meta: dejar cada cine al100%</h2>
+  ${veMeta()? `<div class="card secc"><div class="hd"><h2>Meta: dejar cada cine al100%</h2>
     ${adminUsuarios()? '<button id="nuevo-cine">＋ Nuevo cine</button>' : ''}</div>
     <div class="bd">
       <div class="ad" style="margin-bottom:9px">Ordenado de lo más atrás a lo más adelantado.
@@ -405,7 +420,7 @@ function home(){
             <td class="num"><button data-cine="${c.c}">Ver</button></td>
           </tr>`).join('')}</tbody>
       </table></div>
-    </div></div>
+    </div></div>` : ''}
 
   <div class="card secc"><div class="hd"><h2>Alertas</h2>
     ${pend.length?`<span class="badge rev">${pend.length} por revisar</span>`:''}</div>
@@ -449,11 +464,14 @@ function chipHtml(it, ci, ch){
     <span class="cl">${ch.n}</span><span class="cv">${mostrar}</span></div>`;
 }
 
+const BORRADO = it => S.borrados.indexOf(it.id)>=0;
+const RETIRADO = it => S.retirados[it.id] || null;
+function vivos(items){ return items.filter(it=> !BORRADO(it)); }
 function nombreDe(it){ return S.nomb[it.id] || it.n || ''; }
 function puestoDe(it){ return S.puesto[it.id]!==undefined && S.puesto[it.id]!=='' ? S.puesto[it.id] : (it.p||''); }
 function itemsArea(c, nombre){
   const a = c.ar.find(x=>x.a===nombre);
-  let items = a? a.v.slice() : [];
+  let items = a? vivos(a.v) : [];
   const nuevos = (nuevosDe(c)[nombre])||[];
   if(nuevos.length) items = items.concat(nuevos);
   const ord = S.orden[c.c+'|'+nombre];
@@ -494,6 +512,10 @@ function abrirEdicion(id){
   document.getElementById('ed-nombre').value = nombreDe(it);
   document.getElementById('ed-puesto').value = puestoDe(it);
   document.getElementById('ed-modelo').value = modeloDe(it)||'';
+  document.getElementById('ed-nuevocomp').value = '';
+  const br = document.getElementById('ed-retirar');
+  br.textContent = RETIRADO(it)? 'Reincorporar equipo' : 'Retirar equipo';
+  pintarCompsEd();
   actualizarPos();
   document.getElementById('modal-ed').classList.add('on');
 }
@@ -506,6 +528,114 @@ function actualizarPos(){
   if(el) el.textContent = 'Posición '+(i+1)+' de '+items.length;
 }
 function cerrarEdicion(){ mEd=null; document.getElementById('modal-ed').classList.remove('on'); }
+function pintarCompsEd(){
+  const it = findItem(mEd), box = document.getElementById('ed-comps');
+  if(!it || !box) return;
+  if(!it.c){
+    box.innerHTML = '<div class="ad">Equipo simple (un solo estado). Agrega abajo los periféricos si se compone.</div>';
+    return;
+  }
+  box.innerHTML = it.c.map((ch,i)=>{
+    const est = (S.est[it.id]||{})[i] || 'falta';
+    const crit = ES_CRITICO(ch.n);
+    return `<button type="button" class="chipcomp${crit?' crit':''}" data-qcomp="${i}"
+      title="${crit?'Afecta la facturación':'Quitar componente'}">
+      <span>${ETIQ[ch.n]||ch.n}</span><span class="pill ${est}">${CORTOC[est]}</span><b aria-hidden="true">✕</b></button>`;
+  }).join('');
+}
+function quitarComponente(ci){
+  const it = findItem(mEd); if(!it || !it.c || !it.c[ci]) return;
+  const nombre = ETIQ[it.c[ci].n] || it.c[ci].n;
+  pedir({titulo:'Quitar componente', sub: nombre+' de '+nombreDe(it),
+         campos:[], ok:'Quitar componente'}).then(async r=>{
+    if(!r) return;
+    it.c.splice(ci,1);
+    const e = S.est[it.id] || {}, ne = {};
+    Object.keys(e).forEach(k=>{
+      if(k==='e'){ ne.e = e.e; return; }
+      const i = +k;
+      if(i===ci) return;
+      ne[i>ci? i-1 : i] = e[k];
+    });
+    S.est[it.id] = ne;
+    // el plan se renumera y pierde la acción de ese componente
+    const pref = it.id+'|';
+    S.acc = S.acc.filter(a=>{
+      if(!a.key || a.key.indexOf(pref)!==0) return true;
+      const suf = a.key.slice(pref.length);
+      if(suf==='est') return true;
+      const i = +suf;
+      if(isNaN(i)) return true;
+      if(i===ci) return false;
+      a.key = pref + (i>ci? i-1 : i);
+      return true;
+    });
+    const na = {};
+    Object.keys(S.accionComp).forEach(k=>{
+      if(k.indexOf(pref)!==0){ na[k]=S.accionComp[k]; return; }
+      const i = +k.slice(pref.length);
+      if(isNaN(i) || i===ci) return;
+      na[pref+(i>ci? i-1:i)] = S.accionComp[k];
+    });
+    S.accionComp = na;
+    save(); pintarCompsEd(); render();
+    flash(nombre+' quitado del equipo ✓');
+  });
+}
+function agregarComponente(){
+  const it = findItem(mEd); if(!it) return;
+  const input = document.getElementById('ed-nuevocomp');
+  const nombre = (input.value||'').trim();
+  if(!nombre){ flash('Escribe el nombre del componente'); return; }
+  if(!it.c){
+    const est0 = (S.est[it.id]||{}).e || 'ok';
+    it.c = [{n:nombre, e:est0, v:''}];
+    S.est[it.id] = {0:est0};
+  } else {
+    if(it.c.some(c=> c.n.toLowerCase()===nombre.toLowerCase())){ flash('Ese componente ya existe'); return; }
+    it.c.push({n:nombre, e:'pend', v:''});
+    S.est[it.id] = S.est[it.id] || {};
+    S.est[it.id][it.c.length-1] = 'pend';
+  }
+  input.value = '';
+  save(); pintarCompsEd(); render();
+  flash(nombre+' agregado ✓');
+}
+async function borrarEquipo(){
+  const it = findItem(mEd); if(!it) return;
+  const r = await pedir({
+    titulo:'Borrar equipo', sub: nombreDe(it)+' — desaparece del panel, de los totales y de la meta. No se puede deshacer.',
+    campos:[{id:'ok', label:'Escribe BORRAR para confirmar'}], ok:'Borrar equipo',
+    validar: v=> (v.ok||'').trim().toUpperCase()!=='BORRAR' ? 'Escribe BORRAR para confirmar.' : null});
+  if(!r) return;
+  S.borrados.push(mEd);
+  delete S.est[mEd]; delete S.notas[mEd]; delete S.mod[mEd]; delete S.retirados[mEd];
+  S.acc = S.acc.filter(a=> !(a.key && a.key.indexOf(mEd+'|')===0));
+  save(); cerrarEdicion(); render();
+  flash('Equipo borrado ✓');
+}
+async function retirarEquipo(){
+  const it = findItem(mEd); if(!it) return;
+  const ya = RETIRADO(it);
+  if(ya){                       // reincorporar
+    delete S.retirados[mEd];
+    save(); cerrarEdicion(); render();
+    flash('Equipo reincorporado ✓');
+    return;
+  }
+  const r = await pedir({
+    titulo:'Retirar equipo',
+    sub: nombreDe(it)+' — sale de totales, meta y plan. Justifica el retiro:',
+    campos:[{id:'motivo', label:'Motivo',
+             placeholder:'Ej. Mudanza, remodelación, donación, se cambió por otro…'}],
+    ok:'Retirar equipo',
+    validar: v=> !(v.motivo||'').trim() ? 'Justifica el retiro para dejarlo en la bitácora.' : null});
+  if(!r) return;
+  S.retirados[mEd] = {motivo:r.motivo.trim(), ts:new Date().toISOString(), autor:AUTOR()};
+  S.acc = S.acc.filter(a=> !(a.key && a.key.indexOf(mEd+'|')===0));
+  save(); cerrarEdicion(); render();
+  flash('Equipo retirado ✓ '+r.motivo.trim());
+}
 function guardarEdicion(){
   const it = findItem(mEd); if(!it) return;
   const n = (document.getElementById('ed-nombre').value||'').trim();
@@ -518,6 +648,7 @@ function guardarEdicion(){
   save(); cerrarEdicion(); render();
   flash('Equipo actualizado ✓');
 }
+const ES_CRITICO = n => n==='Terminal POS' || n==='Impresora fiscal' || n==='CPU';
 function itemHtml(it){
   const vacio = !!it.x;
   const ests = estadosItem(it);
@@ -530,6 +661,7 @@ function itemHtml(it){
 
   if(it.c){
     const malos = ests.filter(s=>s==='malo'||s==='rep').length;
+    const tienePinpad = it.c.some(c=>c.n==='Pinpad');
     const tarjeta = (nombre, span)=>{
       const ci = it.c.findIndex(ch=>ch.n===nombre);
       if(ci<0) return '';
@@ -537,12 +669,13 @@ function itemHtml(it){
       const est = (S.est[it.id]||{})[ci] || 'falta';
       const val = valorComp(it, ci, ch);
       const esCpu = nombre==='Terminal POS';
-      const tienePinpad = it.c.some(c=>c.n==='Pinpad');
-      const campoVtid = (nombre==='Pinpad' || (nombre==='VTID' && !tienePinpad)) ? vtidHtml(it) : '';
-      return `<div class="mc ${span} ${est}" data-comp="${it.id}|${ci}">
+      const crit = ES_CRITICO(nombre);
+      const campoVtid = nombre==='Pinpad' ? vtidHtml(it) : '';
+      return `<div class="mc ${span} ${est}${crit?' crit':''}" data-comp="${it.id}|${ci}"
+          ${crit? 'title="Componente crítico: afecta la facturación"' : ''}>
         <div class="mhd">
           <span class="icow">${icono(esCpu? 'cpu' : (ETIQ[nombre]||nombre))}</span>
-          <span class="mnm">${ETIQ[nombre]||nombre}</span>
+          <span class="mnm">${ETIQ[nombre]||nombre}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}</span>
           <span class="pill ${est}">${CORTOC[est]}</span>
         </div>
         ${nombre==='VTID' && tienePinpad ? '' :
@@ -551,9 +684,11 @@ function itemHtml(it){
       </div>`;
     };
     const tarjetas =
-      ORDEN_MOST.filter(([n])=> it.c.some(ch=>ch.n===n))
+      ORDEN_MOST.filter(([n])=> it.c.some(ch=>ch.n===n) &&
+                       !(n==='VTID' && tienePinpad))
         .map(([n, span])=> tarjeta(n, span)).join('')
-      + it.c.filter(ch=> !ORDEN_MOST.some(([n])=> n===ch.n))
+      + it.c.filter(ch=> !ORDEN_MOST.some(([n])=> n===ch.n) &&
+                       !(ch.n==='VTID' && tienePinpad))
         .map(ch=> tarjeta(ch.n, 'm2')).join('');
     return `<div class="eq ${vacio?'empty':''} ${cls}" data-eq="${it.id}">
       <div class="eh">
@@ -567,8 +702,7 @@ function itemHtml(it){
           <button data-ok="${it.id}" title="Todo operativo">✓</button>
         </span>
       </div>
-      ${it.o?`<div class="note">${it.o}</div>`:''}
-      ${nota?`<div class="note">Nota: ${nota}</div>`:''}
+      ${RETIRADO(it)? `<span class="badge ret">RETIRADO · ${RETIRADO(it).motivo||''}</span>`:''}
       <div class="most">${tarjetas}</div>
     </div>`;
   }
@@ -582,9 +716,7 @@ function itemHtml(it){
       ${revAqui? `<span class="badge rev">REV</span>`:''}
       <span class="acts"><button data-note="${it.id}">✎</button></span>
     </div>
-    ${it.d?`<div class="note">${it.d}</div>`:''}
-    ${it.o?`<div class="note">${it.o}</div>`:''}
-    ${nota?`<div class="note">Nota: ${nota}</div>`:''}
+    ${RETIRADO(it)? `<span class="badge ret">RETIRADO · ${RETIRADO(it).motivo||''}</span>`:''}
   </div>`;
 }
 
@@ -593,9 +725,13 @@ function cineVista(c){
   const m = mejora(c);
   const den = (m.mej+m.emp+m.sin)||1;
   const nuevos = nuevosDe(c);
-  const areas = [];
+  let areas = [];
   c.ar.forEach(a=> areas.push({nombre:a.a, items:itemsArea(c, a.a), ro:a.ro||''}));
   Object.keys(nuevos).forEach(k=>{ if(!areas.find(a=>a.nombre===k)) areas.push({nombre:k, items:nuevos[k], ro:''}); });
+
+  // filtro por área
+  if(vista.areaF && vista.areaF!=='todas')
+    areas = areas.filter(a=> a.nombre===vista.areaF);
 
   const filtrado = it => {
     if(vista.filtro==='all') return true;
@@ -609,7 +745,10 @@ function cineVista(c){
     const vis = a.items.filter(filtrado);
     if(!vis.length && vista.filtro!=='all') return '';
     const cA = {ok:0,rep:0,malo:0,falta:0,pend:0,total:0};
-    a.items.forEach(it=> estadosItem(it).forEach(s=>{cA[s]++;cA.total++;}));
+    vivos(a.items).forEach(it=>{
+      if(it.x || RETIRADO(it)) return;
+      estadosItem(it).forEach(s=>{ cA[s]++; cA.total++; });
+    });
     return `<div class="card area">
       <div class="hd"><h2>${a.nombre}</h2>
         <span class="c">${cA.ok}/${cA.total} OK</span>
@@ -623,6 +762,17 @@ function cineVista(c){
     </div>`;
   }).join('');
 
+  const todasAreas = [];
+  c.ar.forEach(a=> todasAreas.push({nombre:a.a, items:itemsArea(c, a.a)}));
+  Object.keys(nuevos).forEach(k=>{ if(!todasAreas.find(a=>a.nombre===k)) todasAreas.push({nombre:k, items:nuevos[k]}); });
+  const nEquipos = areas.reduce((s,a)=> s + vivos(a.items).filter(it=>!RETIRADO(it)).length, 0);
+  const nComponentes = r.total;
+  const chipsArea = `<div class="gbar" role="group" aria-label="Filtrar por área">
+    <button data-areaf="todas" class="${!vista.areaF||vista.areaF==='todas'?'on':''}">Todas (${todasAreas.length})</button>
+    ${todasAreas.map(a=>`<button data-areaf="${a.nombre}"
+       class="${vista.areaF===a.nombre?'on':''}">${a.nombre} (${a.items.length})</button>`).join('')}
+  </div>`;
+
   return `
   <div class="subbar">
     <button class="back" id="volver">← Cines</button>
@@ -631,13 +781,16 @@ function cineVista(c){
     <span style="flex:1"></span>
     <button class="btn-p" id="exp-cine">⬇ Excel</button>
   </div>
-  <div class="counts">
+  <div class="counts counts7">
+    <div><b>${nEquipos}</b><span>Equipos</span></div>
+    <div><b>${nComponentes}</b><span>Componentes</span></div>
     <div><b style="color:var(--ok)">${r.ok}</b><span>Operativos</span></div>
     <div><b style="color:#9a6d00">${r.rep}</b><span>Reparación</span></div>
     <div><b style="color:var(--mal)">${r.malo}</b><span>Dañados</span></div>
     <div><b style="color:#5d6b78">${r.falta}</b><span>Faltantes</span></div>
     <div><b style="color:#5d6b78">${r.pend}</b><span>Sin revisar</span></div>
   </div>
+  ${chipsArea}
   <div class="card secc" style="margin-bottom:12px"><div class="hd"><h2>Mejora de este cine</h2></div>
     <div class="bd">
       <div class="split">
@@ -675,7 +828,32 @@ function pintarNombres(rol, sel){
     `<button data-pnombre="${n}" class="${n===sel?'on':''}">${n}</button>`).join('');
 }
 function abrirPerfil(){
-  if(!S.perfil) return;                       // sin perfil la pantalla de acceso ya está
+  if(!S.perfil) return;                       // sin perfil la pantalla de acceso ya está visible
+  if(tabsPermitidos().indexOf('gestion')<0){  // módulo sin Gestión: cuenta rápida
+    pedir({
+      titulo:'Tu cuenta',
+      sub: AUTOR()+' · '+(ROL_TXT[ROL()]||''),
+      campos:[
+        {id:'op', type:'select', label:'Qué quieres hacer', value:'salir',
+         opciones:[['salir','Cambiar de usuario'],['clave','Cambiar mi clave']]},
+        {id:'clave', type:'password', label:'Nueva clave (déjala vacía si solo cambias de usuario)',
+         autocomplete:'new-password'}
+      ],
+      ok:'Continuar'
+    }).then(async r=>{
+      if(!r) return;
+      if(r.op==='clave'){
+        const k = (r.clave||'').trim();
+        if(k.length<3){ flash('La clave debe tener al menos3 caracteres'); return; }
+        S.claves[AUTOR()] = hashClave(k);
+        save(); flash('Clave actualizada ✓');
+        return;
+      }
+      S.perfil = null; accesoSel = null;
+      save(); render(); flash('Saliste del panel ✓');
+    });
+    return;
+  }
   scrollObj = 0;
   vista.tab = 'gestion'; vista.gseccion = 'usuarios';
   render();
@@ -701,7 +879,9 @@ function pintarPlantillas(){
   const box = document.getElementById('e-comps');
   const ver = mEq.plant==='custom';
   box.style.display = ver? 'flex' : 'none';
-  if(ver && !box.innerHTML){
+  const libre = document.getElementById('e-libre-row');
+  if(libre) libre.style.display = ver? 'flex' : 'none';
+  if(ver){
     box.innerHTML = COMP_CAT.map(c=>
       `<button data-compadd="${c}">${c}</button>`).join('');
   }
@@ -765,7 +945,7 @@ const hashClave = s=>{ let h=5381; for(const c of String(s)) h=(((h<<5)+h)>>>0)+
   return (h>>>0).toString(16); };
 function itemsDeCine(c){
   const out = [];
-  c.ar.forEach(a=> a.v.forEach(it=> out.push({it, area:a.a})));
+  c.ar.forEach(a=> vivos(a.v).forEach(it=> out.push({it, area:a.a})));
   (S.nuevos[c.c]||[]).forEach(it=> out.push({it, area:it.area}));
   return out;
 }
@@ -1302,6 +1482,12 @@ function pedir(op){
       const id = 'g-'+c.id;
       const val = String(c.value==null? '' : c.value)
         .replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      if(c.type==='select'){
+        return `<label class="fld" for="${id}"><span>${c.label}</span>
+          <select id="${id}" name="${id}">${(c.opciones||[]).map(o=>
+            `<option value="${String(o[0]).replace(/"/g,'&quot;')}"${
+              String(o[0])===val? ' selected':''}>${o[1]}</option>`).join('')}</select></label>`;
+      }
       return `<label class="fld" for="${id}"><span>${c.label}</span>
         <input type="${c.type||'text'}" id="${id}" name="${id}" value="${val}"
           placeholder="${c.placeholder||''}" ${c.inputmode? `inputmode="${c.inputmode}"`:''}
@@ -1310,10 +1496,11 @@ function pedir(op){
     }).join('');
     const err = document.getElementById('g-err');
     err.hidden = true; err.textContent = '';
-    document.getElementById('g-ok').textContent = op.ok || 'Guardar';
+    document.getElementById('btn-g-ok').textContent = op.ok || 'Guardar';
     m.classList.add('on');
     setTimeout(()=>{
-      const f = document.querySelector('#g-campos input') || document.getElementById('g-ok');
+      const f = document.querySelector('#g-campos input, #g-campos select')
+        || document.getElementById('btn-g-ok');
       if(f) f.focus();
     }, 60);
   });
@@ -1326,7 +1513,9 @@ function cerrarGen(valor){
 }
 function valoresGen(){
   const o = {};
-  document.querySelectorAll('#g-campos input').forEach(i=>{ o[i.id.replace(/^g-/,'')] = i.value; });
+  document.querySelectorAll('#g-campos input, #g-campos select').forEach(i=>{
+    o[i.id.replace(/^g-/,'')] = i.value;
+  });
   return o;
 }
 function errorGen(msg){
@@ -1343,6 +1532,16 @@ function rolDe(nombre){
 function iniciales(nombre){
   return String(nombre||'?').split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase();
 }
+
+/* Qué pestañas ve cada módulo (la Gerencia ve todo) */
+function tabsPermitidos(){
+  if(!S.perfil) return [];
+  const rol = ROL();
+  if(rol==='soporte') return ['resumen'];                      // portada: alertas + cines
+  if(rol==='infraestructura') return ['resumen','gestion'];
+  return ['resumen','quehacer','gestion'];                     // coordinación y gerencia
+}
+function veMeta(){ return ROL()==='gerencia' || ROL()==='coordinacion'; }
 
 /* ================= ACCESO: pantalla de entrada ================= */
 let accesoSel = null;
@@ -1418,14 +1617,24 @@ async function cambiarClave(){
 
 /* ================= INTERACCIÓN ================= */
 document.addEventListener('keydown', ev=>{
+  if(ev.key==='Enter' && document.activeElement && document.activeElement.id==='e-libre'){
+    ev.preventDefault();
+    const b = document.getElementById('e-libre-add');
+    if(b) b.click();
+    return;
+  }
   const gen = document.getElementById('modal-gen');
   const abierto = gen && gen.classList.contains('on');
   if(abierto && ev.key==='Enter'){
     ev.preventDefault();
-    document.getElementById('g-ok').click();
+    document.getElementById('btn-g-ok').click();
     return;
   }
   if(abierto && ev.key==='Escape'){ ev.preventDefault(); cerrarGen(null); return; }
+  if(ev.key==='Enter'){
+    const actual = document.activeElement;
+    if(actual && actual.id==='ed-nuevocomp'){ ev.preventDefault(); agregarComponente(); return; }
+  }
   if(!abierto && ev.key==='Enter'){
     const actual = document.activeElement;
     if(actual && actual.id==='acc-clave'){ ev.preventDefault(); entrarAcceso(); }
@@ -1447,7 +1656,7 @@ document.addEventListener('click', async ev=>{
     return;
   }
   // ---------- diálogo interno (antes: prompt/confirm de Chrome) ----------
-  if(t.id==='g-ok'){
+  if(t.id==='btn-g-ok'){
     const vals = valoresGen();
     if(gOp && gOp.validar){
       const msg = gOp.validar(vals);
@@ -1684,7 +1893,8 @@ document.addEventListener('click', async ev=>{
   }
 
   const cine = t.closest('[data-cine]');
-  if(cine){ scrollObj=0; vista={...vista, modo:'cine', cine:cine.dataset.cine, filtro:'all'}; render(); return; }
+  if(cine){ scrollObj=0; vista={...vista, modo:'cine', cine:cine.dataset.cine,
+    filtro:'all', areaF:'todas'}; render(); return; }
   if(t.id==='volver'){ scrollObj=0; vista={...vista, modo:'home', cine:null, filtro:'all'}; render(); return; }
 
   if(t.id==='btn-entrar-bloq'){ abrirPerfil(); return; }
@@ -1695,6 +1905,11 @@ document.addEventListener('click', async ev=>{
   const edit = t.closest('[data-edit]');
   if(edit){ abrirEdicion(edit.dataset.edit); return; }
   if(t.id==='ed-si'){ guardarEdicion(); return; }
+  const qc = t.closest('[data-qcomp]');
+  if(qc){ quitarComponente(+qc.dataset.qcomp); return; }
+  if(t.id==='ed-addcomp'){ agregarComponente(); return; }
+  if(t.id==='ed-borrar'){ borrarEquipo(); return; }
+  if(t.id==='ed-retirar'){ retirarEquipo(); return; }
   if(t.id==='ed-no' || t.id==='modal-ed'){ cerrarEdicion(); return; }
   if(t.id==='ed-arriba' || t.id==='ed-abajo'){
     if(!mEd) return;
@@ -1797,6 +2012,9 @@ document.addEventListener('click', async ev=>{
     ((nuevosDe(c)[nombre])||[]).forEach(marcar);
     save(); render(); return;
   }
+  const af = t.closest('[data-areaf]');
+  if(af){ vista.areaF = af.dataset.areaf; scrollObj = 0; render(); return; }
+
   const f = t.closest('[data-f]');
   if(f){ vista.filtro = f.dataset.f; render(); return; }
 
@@ -1816,6 +2034,21 @@ document.addEventListener('click', async ev=>{
     return;
   }
   if(t.id==='e-si'){ crearEquipo(); return; }
+  if(t.id==='e-libre-add'){
+    const i = document.getElementById('e-libre');
+    const nombre = (i.value||'').trim();
+    if(!nombre){ flash('Escribe el componente'); return; }
+    if(!COMP_CAT.some(c=> c.toLowerCase()===nombre.toLowerCase())){
+      COMP_CAT.push(nombre);                 // queda disponible para los próximos
+      if(mEq.comps.indexOf(nombre)<0) mEq.comps.push(nombre);
+      i.value = '';
+      pintarPlantillas();
+      flash(nombre+' agregado al equipo ✓');
+    } else {
+      flash('Ese componente ya está en la lista');
+    }
+    return;
+  }
   if(t.id==='e-no' || t.id==='modal-e'){ cerrarEquipo(); return; }
   if(t.id==='btn-area'){
     const v = (document.getElementById('nueva-area').value||'').trim();

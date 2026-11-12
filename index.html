@@ -91,6 +91,10 @@
       <button data-plant="custom">Personalizar</button>
     </div>
     <div class="causas" id="e-comps" style="display:none"></div>
+    <div class="addrow" id="e-libre-row" style="display:none">
+      <input type="text" id="e-libre" placeholder="Otro componente que falte (escríbelo)">
+      <button id="e-libre-add">+ Agregar</button>
+    </div>
     <div class="row">
       <button id="e-no">Cancelar</button>
       <button class="btn-p" id="e-si">Agregar</button>
@@ -105,13 +109,24 @@
     <input type="text" id="ed-nombre" placeholder="Nombre (ej. Taquilla 2, TV Lobby)">
     <input type="text" id="ed-puesto" placeholder="Posición / puesto (ej. Puesto 3)">
     <input type="text" id="ed-modelo" placeholder="Modelo (ej. HP ProDesk 400)">
-    <div class="sb" style="margin-bottom:7px">Orden dentro del área</div>
+    <div class="sb" style="margin-bottom:7px">Componentes del equipo</div>
+    <div class="comps-edit" id="ed-comps"></div>
+    <div class="addrow">
+      <input type="text" id="ed-nuevocomp" placeholder="Escribe un componente que falte (ej. Cámara, Lector QR)">
+      <button id="ed-addcomp">+ Agregar</button>
+    </div>
+
+    <div class="sb" style="margin:14px 0 7px">Orden dentro del área</div>
     <div class="row" style="align-items:center">
       <button id="ed-arriba">↑ Subir</button>
       <button id="ed-abajo">↓ Bajar</button>
       <span class="ad" id="ed-pos" style="flex:1;text-align:right"></span>
     </div>
-    <div class="row">
+    <div class="rowbtn" style="margin-top:14px">
+      <button id="ed-retirar" class="btn-d">Retirar equipo</button>
+      <button id="ed-borrar" class="btn-d">Borrar equipo</button>
+    </div>
+    <div class="row" style="margin-top:14px">
       <button id="ed-no">Cancelar</button>
       <button class="btn-p" id="ed-si">Guardar</button>
     </div>
@@ -126,7 +141,7 @@
     <p class="g-err" id="g-err" role="alert" hidden></p>
     <div class="row">
       <button id="g-no">Cancelar</button>
-      <button class="btn-p" id="g-ok">Guardar</button>
+      <button class="btn-p" id="btn-g-ok">Guardar</button>
     </div>
   </div>
 </div>
