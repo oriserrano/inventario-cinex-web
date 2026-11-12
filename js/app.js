@@ -950,7 +950,7 @@ function fechaCorta(ts){ if(!ts) return ''; const f=String(ts).slice(0,10).split
 function detalleLinea(it, ci){
   const est = (S.est[it.id]||{})[ci];
   const movs = movsDe(it.id, ci);
-  if(!movs.length && (est==='ok' || est==='pend')) return '';
+  if(!movs.length && (est==='ok' || est==='pend' || est==='falta')) return '';
   const m = movs[0];
   const causa = (m && m.causa) ? m.causa
               : (m ? ((LABEL[m.a]||m.a||'cambio')+' · sin causa') : 'sin causa anotada');
@@ -1002,7 +1002,9 @@ function abrirDetalle(id, ci){
         ${m.causa? `<span class="dcau">${m.causa}</span>`:''}
         <span class="ad">${m.autor||''}${m.rev==='pendiente'? ' · esperando aprobación':''}</span>
       </div>`).join('')}</div>`
-    : '<div class="empty-note">Sin movimientos: así vino del inventario.</div>';
+    : (it.o? `<div class="dhist"><div class="dhrow"><b>Observación del inventario</b>
+        <span>${String(it.o).replace(/</g,'&lt;').slice(0,400)}</span></div></div>`
+      : '<div class="empty-note">Sin movimientos: así vino del inventario.</div>');
 
   const nombre = ch? (ETIQ[ch.n]||ch.n) : nombreDe(it);
   const acc = (S.acc||[]).find(a=> a.key===id+'|'+ci) ||
