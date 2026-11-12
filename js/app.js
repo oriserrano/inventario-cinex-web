@@ -1071,12 +1071,16 @@ function repararAcc(){
   const vistas = {}, muertos = [];
   const orden = ['pendiente','cotizado','aprobado','comprado','ejecutado'];
   S.acc.forEach(a=>{
-    if(!a.key || a.key.indexOf('undefined')===0){
-      const it = porRef[[a.cine, a.area, a.eq||'', String(a.puesto||'')].join('\u00a7')];
-      if(it){
-        const i = (it.c||[]).findIndex(z=> z.n===a.comp);
-        a.key = i>=0? (it.id+'|'+i) : (it.id+'|'+a.comp);
-      }
+    // clave canónica: id|índice de componente (id|est para estaciones sin equipo)
+    const it = porRef[[a.cine, a.area, a.eq||'', String(a.puesto||'')].join('\u00a7')];
+    if(it){
+      let k = null;
+      if(a.comp==='Estación completa' && it.x) k = it.id+'|est';
+      else if(it.c){
+        const i = it.c.findIndex(z=> (ETIQ[z.n]||z.n)===a.comp);
+        if(i>=0) k = it.id+'|'+i;
+      } else k = it.id+'|e';
+      if(k) a.key = k;
     }
     const k = [a.cine, a.area, String(a.puesto||''), a.eq||'', a.comp].join('\u00a7');
     const queQueda = vistas[k];
@@ -1153,6 +1157,7 @@ function sincronizarPlan(){
       }
     });
   });
+  repararAcc();      // segunda pasada: si nacieron duplicados en este ciclo, se limpian ya
   return n;
 }
 function barrasHTML(datos, color){
