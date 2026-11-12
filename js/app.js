@@ -2362,7 +2362,6 @@ function exportarPlan(){
   bajar('plan-trabajo-cinex-'+hoy()+'.csv', filas);
 }
 
-sincronizarPlan();          // completa los montos del plan con el catálogo al arrancar
 pintarNube();
 (async ()=>{
   if(await sbConectar()){
@@ -2376,6 +2375,7 @@ if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
 ensureIds();
+sincronizarPlan();          // crea/completa el plan DESPUÉS de asignar ids
 document.getElementById('subtop').textContent =
   'Operatividad de equipos · ' + DATA.cines.length + ' cines · base ' + DATA.gen;
 save();
