@@ -1830,6 +1830,34 @@ function gestion(){
               x.m.costo? ' · '+fmt(x.m.costo) : ''}</span></span>
           <button data-cine="${x.c.c}">Ver</button></div>`).join('')}</div></div>
 
+      ${(()=>{ const meta = DATA.meta || {};
+        const filas = DATA.cines.map(c=>({c, m:meta[c.c]}))
+          .filter(x=> x.m && x.m.ideal!==null && x.m.ideal!==undefined)
+          .sort((a,b)=> (b.m.disp||0)-(a.m.disp||0));
+        if(!filas.length) return '';
+        const tot = filas.reduce((s,x)=>({ideal:s.ideal+(x.m.ideal||0),
+          inst:s.inst+(x.m.inst||0), oper:s.oper+(x.m.oper||0),
+          disp:s.disp+(x.m.disp||0)}), {ideal:0,inst:0,oper:0,disp:0});
+        const sinMeta = DATA.cines.filter(c=> !meta[c.c] || meta[c.c].ideal===null
+          || meta[c.c].ideal===undefined).map(c=>c.n);
+        return `<div class="card secc"><div class="hd"><h2>Espacios disponibles</h2>
+          <span class="ad">base v3 · ideal vs instalado</span></div><div class="bd">
+          <div class="tbl-wrap"><table class="tbl">
+            <thead><tr><th>Cine</th><th class="num">Ideal</th><th class="num">Instalado</th>
+              <th class="num">Operativo</th><th class="num">Disponibles</th></tr></thead>
+            <tbody>${filas.map(x=>`<tr><td><b>${x.c.n}</b></td>
+              <td class="num">${x.m.ideal}</td><td class="num">${x.m.inst}</td>
+              <td class="num">${x.m.oper}</td>
+              <td class="num"><b style="color:${x.m.disp? 'var(--mal)':'var(--ok)'}">${x.m.disp}</b></td>
+            </tr>`).join('')}</tbody>
+            <tfoot><tr><td><b>Total</b></td><td class="num">${tot.ideal}</td>
+              <td class="num">${tot.inst}</td><td class="num">${tot.oper}</td>
+              <td class="num"><b>${tot.disp}</b></td></tr></tfoot>
+          </table></div>
+          <div class="ad" style="margin-top:9px">Fuente: POS-Complejos-v3 (29/10/2025)${
+            sinMeta.length? ' · sin dato en esa base: '+sinMeta.join(', ') : ''}</div>
+        </div></div>`; })()}
+
       <div class="rowbtn">
         <button class="btn-p" data-gsec="exportar">Exportar resultados</button>
         <button data-gsec="auditoria">Auditoría</button>
