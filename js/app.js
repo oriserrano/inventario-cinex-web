@@ -963,7 +963,8 @@ function discosHtml(id, ci){
   return `<div class="discos">${arr.map((e,i)=>
     `<button type="button" class="disco ${e}" data-disco="${id}|${ci}|${i}"
       title="Disco ${i+1}: ${DISCO_TXT[e]||e} — toca para cambiarlo"></button>`).join('')}
-    <span class="dad">${arr.length} discos</span></div>`;
+    <button type="button" class="dad" data-det="${id}|${ci}"
+      title="Ver detalle: agregar o quitar discos">${arr.length} discos ▸</button></div>`;
 }
 function detalleLinea(it, ci){
   const est = (S.est[it.id]||{})[ci];

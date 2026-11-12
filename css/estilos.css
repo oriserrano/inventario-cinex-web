@@ -398,7 +398,9 @@ button.disco{min-height:0}
 .disco.deg{background:#e0a100}
 .disco.mal{background:#d13438}
 .disco:hover{transform:scale(1.15)}
-.dad{font-size:11px;font-weight:800;color:var(--mut);letter-spacing:.2px}
+.dad{font-size:11px;font-weight:800;color:var(--mut);letter-spacing:.2px;background:none;
+  border:0;padding:2px 4px;font-family:inherit;cursor:pointer;border-radius:6px;min-height:24px}
+.dad:hover{background:#eef4fa;color:var(--brand)}
 
 /* Línea de causa dentro de la tarjeta + detalle de incidencias */
 .dlinea{display:block;width:100%;margin-top:6px;padding:5px 7px;border:0;border-radius:8px;
