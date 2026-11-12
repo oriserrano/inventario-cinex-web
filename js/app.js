@@ -1976,6 +1976,42 @@ function actualizarFalloModal(){
     `${it? it.n:''} · ${etiquetaComp(mPend.id, mPend.idx)} · actual: ${
       LABEL[mPend.viejo]} → ${LABEL[mPend.nuevo]}`;
 }
+/* Ficha del equipo dentro de la ventana de estado: todo lo que se sabe de él */
+function fichaHTML(id, idx){
+  const it = findItem(id); if(!it) return '';
+  const d = dondeEsta(id);
+  const esSimple = (idx==='e' || !it.c);
+  const ch = (!esSimple && it.c[idx]) ? it.c[idx] : null;
+  const modEq = modeloDe(it) || '';
+  const modCh = ch? (S.cmod[id+'|'+idx] || (ch.v && !esVacio(ch.v)? ch.v : '')) : '';
+  const nota = S.notas[id] || '';
+  const obs = it.o || '';
+  const movs = movsDe(id, esSimple? undefined : idx);
+  const acc = (S.acc||[]).find(a=> a.key===id+'|'+idx) ||
+              (d && (S.acc||[]).find(a=> a.cine===d.c.c && a.area===d.area &&
+                a.eq===nombreDe(it) && (!ch || a.comp===(ETIQ[ch.n]||ch.n))));
+  const etapa = acc && EST_PLAN.find(x=>x[0]===acc.estado);
+  const fila = (k, v, cls)=> v? `<div class="frow2"><span>${k}</span><b class="${cls||''}">${v}</b></div>` : '';
+  const movsHtml = movs.slice(0,3).map(m=>
+    `<div class="fmov"><b>${fechaCorta(m.ts)} ${String(m.ts||'').slice(11,16)}</b>
+      <span>${m.de||'—'} → <b>${m.a||'—'}</b></span>
+      ${m.causa? `<span class="fcau">${m.causa}</span>`:''}
+      <span class="ad">${m.autor||''}</span></div>`).join('');
+  return [
+    fila('Equipo', `${nombreDe(it)}${puestoDe(it)? ' · puesto '+puestoDe(it):''}`),
+    fila('Ubicación', d? `${d.area} · ${d.c.n}` : ''),
+    fila('Modelo', [modEq? 'equipo: '+modEq:'', modCh? 'componente: '+modCh:'']
+        .filter(Boolean).join(' · ')),
+    fila('Nota', nota.replace(/</g,'&lt;')),
+    fila('Observación inv.', obs? String(obs).replace(/</g,'&lt;').slice(0,260):''),
+    acc? `<div class="frow2"><span>Plan</span><b>${
+        acc.tipo==='reparar'?'REPARAR':'COMPRAR'} ${acc.cant||1} · ${
+        etapa? etapa[1]:acc.estado} · ${
+        (acc.monto!==''&&acc.monto!==undefined)? fmt(acc.monto):'sin precio'}${
+        acc.nota? ' · '+String(acc.nota).replace(/</g,'&lt;'):''}</b></div>` : '',
+    movsHtml? `<div class="fhist"><span class="fh-t">Últimos cambios</span>${movsHtml}</div>` : ''
+  ].join('');
+}
 function abrirModal(id, idx){
   const it = findItem(id); if(!it) return;
   const actual = estadoActualDe(id, idx);
@@ -1990,6 +2026,8 @@ function abrirModal(id, idx){
   document.getElementById('m-det').value='';
   document.querySelectorAll('[data-accion]').forEach(b=>
     b.classList.toggle('on', b.dataset.accion==='reparar'));
+  const ficha = document.getElementById('m-ficha');
+  if(ficha) ficha.innerHTML = fichaHTML(id, idx);
   const lbl = document.getElementById('m-rev').closest('label');
   lbl.hidden = !!enCD;                       // Centro de datos: pasa directo
   document.getElementById('m-rev').checked = !enCD;
