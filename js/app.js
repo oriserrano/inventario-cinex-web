@@ -483,7 +483,7 @@ function tarjetaFiltro(){
                falta:'faltantes', pend:'sin revisar', vacias:'puestos sin equipo'}[est] || est;
   return `<div class="card secc"><div class="hd"><h2>${filas.length} ${tit}</h2>
     <span class="ad">${vista.gfTodo? 'lista completa' : 'mostrando '+mostrar.length}</span>
-    <button data-gfclose>Cerrar</button></div><div class="bd">
+    <button data-gfclose class="btn-ghost">Limpiar filtro ✕</button></div><div class="bd">
     ${filas.length? `<div class="flist">${mostrar.map(f=>`<div class="frow">
         <span><b>${f.cn}</b> · ${f.area} · ${f.eq}${f.comp!=='—'? ' · '+f.comp:''}</span>
         <button data-gfcine="${f.cine}">Ver cine</button></div>`).join('')}</div>`
@@ -642,12 +642,12 @@ function home(){
         <i class="pendseg" style="${seg(pj('pend'))}"></i>
       </div>
       <div class="kpis" style="margin-top:9px">
-        <button class="kpi-f" data-gf="ok"><b style="color:var(--ok)">${tot.ok}</b> operativos</button>
-        <button class="kpi-f" data-gf="rep"><b style="color:#9a6d00">${tot.rep}</b> reparación</button>
-        <button class="kpi-f" data-gf="malo"><b style="color:var(--mal)">${tot.malo}</b> dañados</button>
-        <button class="kpi-f" data-gf="falta"><b>${tot.falta}</b> faltantes</button>
-        <button class="kpi-f" data-gf="pend"><b>${tot.pend}</b> sin revisar</button>
-        ${tot.vacias? `<button class="kpi-f" data-gf="vacias"><b>${tot.vacias}</b> puestos sin equipo</button>`:''}
+        <button class="kpi-f${vista.gf==='ok'?' on':''}" data-gf="ok"><b style="color:var(--ok)">${tot.ok}</b> operativos</button>
+        <button class="kpi-f${vista.gf==='rep'?' on':''}" data-gf="rep"><b style="color:#9a6d00">${tot.rep}</b> reparación</button>
+        <button class="kpi-f${vista.gf==='malo'?' on':''}" data-gf="malo"><b style="color:var(--mal)">${tot.malo}</b> dañados</button>
+        <button class="kpi-f${vista.gf==='falta'?' on':''}" data-gf="falta"><b>${tot.falta}</b> faltantes</button>
+        <button class="kpi-f${vista.gf==='pend'?' on':''}" data-gf="pend"><b>${tot.pend}</b> sin revisar</button>
+        ${tot.vacias? `<button class="kpi-f${vista.gf==='vacias'?' on':''}" data-gf="vacias"><b>${tot.vacias}</b> puestos sin equipo</button>`:''}
         ${tot.retirados? `<span><b>${tot.retirados}</b> retirados</span>`:''}
       </div>
     </div></div>
@@ -931,6 +931,93 @@ function guardarEdicion(){
   flash('Equipo actualizado ✓');
 }
 const ES_CRITICO = n => n==='Terminal POS' || n==='Impresora fiscal' || n==='CPU';
+function movsDe(id, ci){
+  const it = findItem(id); if(!it) return [];
+  const d = dondeEsta(id); if(!d) return [];
+  const ch = it.c && it.c[ci];
+  const compNombre = ch? (ETIQ[ch.n]||ch.n) : null;
+  return (S.mov||[]).filter(m=>{
+      if(m.id && m.id!==id) return false;
+      if(m.cine!==d.c.c || m.area!==d.area) return false;
+      if(m.eq && m.eq!==nombreDe(it)) return false;
+      if(ch && m.comp && m.comp!==compNombre) return false;
+      return true;
+    }).sort((a,b)=> String(b.ts||'').localeCompare(String(a.ts||'')));
+}
+function fechaCorta(ts){ if(!ts) return ''; const f=String(ts).slice(0,10).split('-');
+  return f.length===3? f[2]+'/'+f[1] : ''; }
+/* Línea "⚠ causa · fecha" bajo el componente: es la puerta al detalle */
+function detalleLinea(it, ci){
+  const est = (S.est[it.id]||{})[ci];
+  const movs = movsDe(it.id, ci);
+  if(!movs.length && (est==='ok' || est==='pend')) return '';
+  const m = movs[0];
+  const causa = (m && m.causa) ? m.causa
+              : (m ? ((LABEL[m.a]||m.a||'cambio')+' · sin causa') : 'sin causa anotada');
+  const quien = m && m.autor ? m.autor.split(' ')[0] : '';
+  const fecha = m ? fechaCorta(m.ts) : '';
+  return `<button type="button" class="dlinea ${est||''}" data-det="${it.id}|${ci}"
+      title="Ver detalle: quién lo marcó, por qué y qué sigue">
+      ⚠ ${causa}${quien? ' · '+quien:''}${fecha? ' · '+fecha:''}</button>`;
+}
+/* ===== Detalle de incidencia: quién lo marcó, por qué y qué sigue ===== */
+function abrirDetalle(id, ci){
+  const it = findItem(id); if(!it) return;
+  const d = dondeEsta(id); if(!d) return;
+  const tit = document.getElementById('dt-tit');
+  const sub = document.getElementById('dt-sub');
+  const estBox = document.getElementById('dt-estado');
+  const hist = document.getElementById('dt-hist');
+  const plan = document.getElementById('dt-plan');
+  if(!tit) return;
+  tit.textContent = nombreDe(it);
+  sub.textContent = d.c.n+' · '+d.area+(puestoDe(it)? ' · puesto '+puestoDe(it):'');
+  const comps = it.c || [];
+  const estDe = k => (S.est[it.id]||{})[k] || (comps[k]? comps[k].e : (it.e||'pend'));
+
+  if(ci===undefined || ci===null){                 // --- lista: qué está malo aquí ---
+    const filas = comps.map((ch,i)=>({ch, i, e:estDe(i)})).filter(x=> x.e!=='ok');
+    estBox.innerHTML = filas.length? `<div class="dlist">${filas.map(x=>{
+      const m = movsDe(id, x.i)[0];
+      return `<button class="drow" data-det="${id}|${x.i}">
+        <span class="pill ${x.e}">${CORTOC[x.e]}</span>
+        <span class="dnm">${ETIQ[x.ch.n]||x.ch.n}</span>
+        <span class="ad">${m? (m.causa||'sin causa') : 'así vino del inventario'}</span></button>`;}).join('')}</div>`
+      : `<div class="empty-note">Todo operativo en este equipo ✓</div>`;
+    hist.innerHTML = ''; plan.innerHTML = '';
+    document.getElementById('modal-det').classList.add('on');
+    return;
+  }
+
+  const ch = comps[ci];
+  const e = estDe(ci);
+  tit.textContent = ch? (ETIQ[ch.n]||ch.n) : nombreDe(it);
+  estBox.innerHTML = `<div class="dest"><span class="pill ${e}">${LABEL[e]||e}</span>
+    <span class="ad">${ch? '' : 'equipo simple'}</span></div>`;
+
+  const movs = movsDe(id, ci);
+  hist.innerHTML = movs.length? `<div class="dhist">${movs.slice(0,8).map(m=>`
+      <div class="dhrow"><b>${fechaCorta(m.ts)} ${String(m.ts||'').slice(11,16)}</b>
+        <span>${m.de||'—'} → <b>${m.a||'—'}</b></span>
+        ${m.causa? `<span class="dcau">${m.causa}</span>`:''}
+        <span class="ad">${m.autor||''}${m.rev==='pendiente'? ' · esperando aprobación':''}</span>
+      </div>`).join('')}</div>`
+    : '<div class="empty-note">Sin movimientos: así vino del inventario.</div>';
+
+  const nombre = ch? (ETIQ[ch.n]||ch.n) : nombreDe(it);
+  const acc = (S.acc||[]).find(a=> a.key===id+'|'+ci) ||
+              (S.acc||[]).find(a=> a.cine===d.c.c && a.area===d.area &&
+                 a.eq===nombreDe(it) && a.comp===nombre);
+  const etapa = acc && EST_PLAN.find(x=>x[0]===acc.estado);
+  plan.innerHTML = acc? `<div class="dplan">
+      <span class="badge ${acc.tipo==='reparar'?'mal':'rev'}">${acc.tipo==='reparar'?'REPARAR':'COMPRAR'}</span>
+      <span>${acc.cant||1} · ${etapa? etapa[1] : acc.estado}</span>
+      <b>${(acc.monto!==''&&acc.monto!==undefined)? fmt(acc.monto):'sin precio'}</b>
+      ${acc.nota? `<div class="ad">${acc.nota}</div>`:''}</div>`
+    : '<div class="empty-note">Sin acción en el plan para este componente.</div>';
+
+  document.getElementById('modal-det').classList.add('on');
+}
 function itemHtml(it){
   const vacio = !!it.x;
   const ests = estadosItem(it);
@@ -963,6 +1050,7 @@ function itemHtml(it){
         ${nombre==='VTID' && tienePinpad ? '' :
           `<div class="mv ${val?'':'vac'}" ${esCpu? `data-mod="${it.id}"` : `data-cmod="${it.id}|${ci}"`}>${val||'+ Modelo'}</div>`}
         ${campoVtid}
+        ${detalleLinea(it, ci)}
       </div>`;
     };
     const tarjetas =
@@ -977,7 +1065,8 @@ function itemHtml(it){
         <span class="icow">${icono(nombreDe(it)+' '+(it.m||'')+' '+mod)}</span>
         <span class="etit"><span class="en" data-edit="${it.id}" title="Editar nombre y posición">${nombreDe(it)}</span>
           <span class="em">${puestoDe(it)? 'Puesto '+puestoDe(it) : ''}</span></span>
-        ${malos? `<span class="badge mal">${malos} incid.</span>`:''}
+        ${malos? `<button class="badge mal" data-incid="${it.id}"
+            title="Ver qué está malo en este equipo">${malos} incid.</button>`:''}
         ${revAqui? `<span class="badge rev">REV</span>`:''}
         <span class="acts">
           <button data-note="${it.id}" title="Nota">✎</button>
@@ -2511,6 +2600,14 @@ document.addEventListener('click', async ev=>{
     if(rcv){ S.cmod[raw]=rcv.v.trim(); save(); render(); flash('Modelo guardado ✓'); }
     return;
   }
+  const det = t.closest('[data-det]');
+  if(det){ const raw = det.dataset.det, k = raw.lastIndexOf('|');
+    abrirDetalle(raw.slice(0,k), +raw.slice(k+1)); return; }
+  const inc = t.closest('[data-incid]');
+  if(inc){ abrirDetalle(inc.dataset.incid); return; }
+  if(t.id==='dt-cerrar' || t.id==='modal-det'){
+    document.getElementById('modal-det').classList.remove('on'); return; }
+
   const comp = t.closest('[data-comp]');
   if(comp){
     const raw = comp.dataset.comp, k = raw.lastIndexOf('|');

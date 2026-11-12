@@ -380,10 +380,40 @@ button:active{transform:translateY(1px)}
 .grupo.sub>summary{padding-left:20px;font-size:13px;min-height:44px;background:#fcfdfe}
 .grupo.sub .gk{font-weight:600;color:var(--ink)}
 
+/* Línea de causa dentro de la tarjeta + detalle de incidencias */
+.dlinea{display:block;width:100%;margin-top:6px;padding:5px 7px;border:0;border-radius:8px;
+  background:rgba(255,255,255,.75);font-family:inherit;font-size:11.5px;font-weight:700;
+  color:var(--mut);text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;line-height:1.35}
+.dlinea:hover{background:#fff;box-shadow:inset 0 0 0 1px var(--line)}
+.dlinea.malo,.dlinea.rep{color:#a4262c}
+.dlinea.falta{color:#7a5a00}
+.dlist{display:flex;flex-direction:column;gap:7px}
+.drow{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--line);
+  border-radius:11px;background:#fff;font-family:inherit;font-size:14px;cursor:pointer;text-align:left;
+  min-height:48px}
+.drow:hover{border-color:#c3d2e0;background:#f7fafc}
+.drow .dnm{flex:1;font-weight:700}
+.drow .ad{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dest{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.dhist{display:flex;flex-direction:column;gap:7px}
+.dhrow{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border-left:3px solid var(--line);
+  background:#f7fafc;border-radius:0 9px 9px 0;font-size:13px}
+.dhrow b{font-size:12.5px}
+.dcau{font-weight:700;color:var(--ink)}
+.dplan{display:flex;flex-wrap:wrap;align-items:center;gap:9px;padding:11px 12px;
+  border:1px solid var(--line);border-radius:11px;background:#fff;font-size:13.5px}
+.dplan .ad{width:100%}
+
 /* Resumen general: las cifras son filtros */
 .kpi-f{background:none;border:0;font:inherit;color:inherit;cursor:pointer;padding:7px 9px;
   border-radius:10px;min-height:44px;text-align:left;font-family:inherit}
 .kpi-f:hover{background:#f1f6fb}
+.kpi-f.on{background:var(--brand);color:#fff;box-shadow:0 2px 8px rgba(10,92,173,.35)}
+.kpi-f.on b{color:#fff!important}
+.btn-ghost{min-height:38px;padding:8px 13px;border:1px solid var(--line);border-radius:9px;
+  background:#fff;font-family:inherit;font-size:12.5px;font-weight:800;color:var(--mut);cursor:pointer}
+.btn-ghost:hover{border-color:var(--brand);color:var(--brand)}
 .flist{display:flex;flex-direction:column;gap:6px;max-height:460px;overflow:auto}
 .frow{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);
   border-radius:10px;font-size:13.5px;background:#fff}
