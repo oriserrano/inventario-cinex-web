@@ -137,6 +137,10 @@ function estadosItem(it){
 function nuevoDe(id, idx, a, causa, rev){
   const it = findItem(id);
   const p = partes(id);
+  // los equipos nuevos tienen id sin tubos (add-179…) → el cine real sale de dondeEsta
+  const d = id.indexOf('|')<0 ? dondeEsta(id) : null;
+  const cineReal = d? d.c.c : p.cine;
+  const areaReal = d? d.area : p.area;
   if(!S.est[id]) S.est[id]={};
   const viejo = S.est[id][idx];
   if(viejo===a) return false;
@@ -145,12 +149,12 @@ function nuevoDe(id, idx, a, causa, rev){
   if(a==='ok'){
     S.mov.forEach(m=>{
       if(m.rev!=='pendiente') return;
-      const mismo = m.id===id || (!m.id && m.cine===p.cine && m.area===p.area &&
+      const mismo = m.id===id || (!m.id && m.cine===cineReal && m.area===areaReal &&
                     m.eq===(it?it.n:'') && m.comp===etiquetaComp(id,idx));
       if(mismo){ m.rev='ok'; m.rap=new Date().toISOString(); }
     });
   }
-  S.mov.push({ts:new Date().toISOString(), id, cine:p.cine, area:p.area,
+  S.mov.push({ts:new Date().toISOString(), id, cine:cineReal, area:areaReal,
               eq: it? it.n : '', comp: etiquetaComp(id,idx),
               de: LABEL[viejo||'pend'], a: LABEL[a], causa: causa||'', rev: rev||'ok',
               autor: AUTOR()});
@@ -361,6 +365,34 @@ function metaCine(c){
           pct: total? Math.round(ok/total*100) : 0};
 }
 
+/* ---- indicadores del tablero ejecutivo ---- */
+function avanceGlobal(){
+  const t = conteosTotales();
+  const cines = DATA.cines.map(c=>({c, m:metaCine(c)}));
+  const enMeta = cines.filter(x=> x.m.pct>=90).length;
+  const sinDatos = cines.filter(x=> x.m.total===0).length;
+  return {t, cines, enMeta, sinDatos,
+          pct: t.total? Math.round(t.ok/t.total*100) : 0};
+}
+function topProblemas(n){
+  const m = {};
+  const suma = (chs, est)=> chs.forEach(x=>{ if(['falta','malo','rep'].indexOf(est(x))>=0)
+    m[x.n] = (m[x.n]||0)+1; });
+  DATA.cines.forEach(c=> c.ar.forEach(a=> vivos(a.v).forEach(it=>{
+    if(it.x || RETIRADO(it)) return;
+    const e = S.est[it.id]||{};
+    if(it.c) suma(it.c.map((ch,i)=>({n:ETIQ[ch.n]||ch.n, e:e[i]})), x=> x.e||'falta');
+    else suma([{n:it.n, e:e.e}], x=> x.e||'ok');
+  })));
+  return Object.entries(m).sort((a,b)=> b[1]-a[1]).slice(0, n);
+}
+function planPorEstado(){
+  return EST_PLAN.map(([k, txt])=>{
+    const filas = S.acc.filter(a=> a.estado===k);
+    return {k, txt, n:filas.length,
+            monto: filas.reduce((s,a)=> s+(Number(a.monto)||0), 0)};
+  }).filter(x=> x.n);
+}
 function home(){
   const tot = conteosTotales();
   const pj = k => tot.total? (tot[k]/tot.total*100):0;
@@ -992,6 +1024,8 @@ const CATALOGO = ['CPU','Monitor principal','Monitor secundario','Impresora fisc
   'Estación completa'];
 function precioDe(n){
   if(S.precios[n]!==undefined && S.precios[n]!=='') return S.precios[n];
+  // la acción se guarda como "Estación completa (puesto3)"
+  if(n==='Estación completa' || n.indexOf('Estación completa')===0) return PRECIO_ESTACION;
   if(PRECIOS[n]!==undefined) return PRECIOS[n];
   const alt = n==='CPU' ? 'Terminal POS' : (n==='Escáner' ? 'Lector de barras' : null);
   return (alt && PRECIOS[alt]!==undefined) ? PRECIOS[alt] : '';
@@ -1012,6 +1046,13 @@ function nuevaAccion(o){
 }
 function sincronizarPlan(){
   let n = 0;
+  // montos vacíos se completan con el catálogo (los escritos a mano no se tocan)
+  S.acc.forEach(a=>{
+    if(a.monto==='' || a.monto===null || a.monto===undefined){
+      const p = precioDe(a.comp);
+      if(p!=='' && p!==undefined) a.monto = p;
+    }
+  });
   DATA.cines.forEach(c=>{
     itemsDeCine(c).forEach(({it, area})=>{
       const ests = estadosItem(it);
@@ -1294,34 +1335,83 @@ function gestion(){
       <b>Gerencia</b> (Oriana): edita inventario y montos, aprueba el plan y ve las gráficas.</div>
   </div></div>`;
   const tarjetas = {
-    tablero: `<div class="card secc"><div class="hd"><h2>Tablero gerencial</h2>
-      <span class="ad">${DATA.cines.length} cines</span></div><div class="bd">
-      <div class="kpis" style="margin-top:0">
-        <span><b>${piezasComprar}</b> piezas a comprar</span>
-        <span><b>${fmt(costoComprar)}</b> costo estimado</span>
-        <span><b>${aReparar}</b> a reparar</span>
-        <span><b>${sinRevisar}</b> sin revisar</span>
+    tablero: (()=>{
+      const av = avanceGlobal();
+      const tops = topProblemas(6);
+      const maxTop = tops.length? tops[0][1] : 1;
+      const porEstado = planPorEstado();
+      const maxEst = Math.max(1, ...porEstado.map(x=>x.n));
+      const COL = {pendiente:'#e0a100', cotizado:'#2f6fb3', aprobado:'#7b5cd6',
+                   comprado:'#1f9d55', ejecutado:'#0d7a4f'};
+      const planPend = S.acc.filter(a=> a.estado==='pendiente' || a.estado==='cotizado');
+      const montoPend = planPend.reduce((s,a)=> s+(Number(a.monto)||0), 0);
+      return `
+      <div class="grid2">
+        <div class="card secc"><div class="hd"><h2>Avance hacia el100%</h2>
+          <span class="ad">${av.enMeta}/${DATA.cines.length} cines en la meta</span></div>
+          <div class="bd">
+            <div class="avance"><b>${av.pct}%</b>
+              <span class="bar"><i style="width:${av.pct}%;background:${
+                av.pct>=90? 'var(--ok)':(av.pct>=70? '#e0a100':'var(--mal)')}"></i></span></div>
+            <div class="kpis" style="margin-top:10px">
+              <span><b style="color:var(--ok)">${av.t.ok}</b> operativos</span>
+              <span><b style="color:var(--mal)">${av.t.malo+av.t.rep}</b> con incidencia</span>
+              <span><b>${av.t.falta}</b> faltantes</span>
+              <span><b>${av.t.vacias}</b> puestos vacíos</span>
+              <span><b>${av.t.pend}</b> sin revisar</span>
+            </div>
+          </div></div>
+
+        <div class="card secc"><div class="hd"><h2>Pendiente de tu decisión</h2>
+          ${(pend.length||planPend.length)? `<span class="badge mal">${pend.length+planPend.length}</span>`:''}</div>
+          <div class="bd">
+            ${pend.length? `<div class="alerta"><span class="badge rev">REV</span>
+              <span style="flex:1"><span class="ti">${pend.length} cambios esperan aprobación</span><br>
+                <span class="de">${[...new Set(pend.map(x=>x.cine))].join(' · ')}</span></span>
+              <button data-gsec="aprob">Revisar</button></div>`
+ : `<div class="empty-note">Sin cambios esperando aprobación ✓</div>`}
+            ${planPend.length? `<div class="alerta"><span class="badge mal">PLAN</span>
+              <span style="flex:1"><span class="ti">${planPend.length} acciones · ${fmt(montoPend)}</span><br>
+                <span class="de">esperan aprobación de monto</span></span>
+              <button data-tab="quehacer">Ver plan</button></div>`:''}
+          </div></div>
       </div>
-      <div class="subt">Pendiente de tu decisión</div>
-      ${pend.length? `<div class="alerta">
-          <span class="badge rev">${pend.length}</span>
-          <span style="flex:1"><span class="ti">Cambios esperan aprobación</span><br>
-            <span class="de">${pend.slice(0,2).map(x=>x.cine+' · '+x.eq+' · '+x.comp).join(' — ')}</span></span>
-          <button data-gsec="aprob">Revisar</button></div>`
-        : `<div class="empty-note">No hay cambios esperando aprobación.</div>`}
-      <div class="subt">Cines más rezagados (para llegar al100%)</div>
-      ${rezagados.map(x=>`<div class="alerta">
+
+      <div class="grid2">
+        <div class="card secc"><div class="hd"><h2>Plan de reemplazos</h2>
+          <button data-tab="quehacer">Plan completo</button></div>
+          <div class="bd">
+            ${porEstado.length? porEstado.map(x=>`<div class="filaest">
+                <span>${x.txt}</span>
+                <span class="bar"><i style="width:${x.n/maxEst*100}%;background:${COL[x.k]||'#8aa0b3'}"></i></span>
+                <b>${x.n}</b><span class="ad">${x.monto? fmt(x.monto):''}</span></div>`).join('')
+              : '<div class="empty-note">Todavía no hay acciones en el plan.</div>'}
+          </div></div>
+
+        <div class="card secc"><div class="hd"><h2>Qué está fallando más</h2>
+          <span class="ad">faltantes + dañados</span></div>
+          <div class="bd">
+            ${tops.map(([n,v])=>`<div class="filaest"><span>${n}</span>
+                <span class="bar"><i style="width:${v/maxTop*100}%;background:var(--mal)"></i></span>
+                <b>${v}</b></div>`).join('') || '<div class="empty-note">Sin incidencias ✓</div>'}
+          </div></div>
+      </div>
+
+      <div class="card secc"><div class="hd"><h2>Cines más rezagados</h2>
+        <span class="ad">para llegar al100%</span></div>
+        <div class="bd">${rezagados.map(x=>`<div class="alerta">
           <span class="badge ${x.m.pct>=70?'rev':'mal'}">${x.m.pct}%</span>
           <span style="flex:1"><span class="ti">${x.c.n}</span><br>
             <span class="de">comprar ${x.m.comprar} · reparar ${x.m.reparar}${
               x.m.costo? ' · '+fmt(x.m.costo) : ''}</span></span>
-          <button data-cine="${x.c.c}">Ver</button></div>`).join('')}
-      <div class="rowbtn" style="margin-top:14px">
+          <button data-cine="${x.c.c}">Ver</button></div>`).join('')}</div></div>
+
+      <div class="rowbtn">
         <button class="btn-p" data-gsec="exportar">Exportar resultados</button>
         <button data-gsec="auditoria">Auditoría</button>
         <button data-gsec="usuarios">Usuarios</button>
-      </div>
-    </div></div>`,
+      </div>`;
+    })(),
     usuarios: `<div class="card secc"><div class="hd"><h2>Equipo y módulos</h2>
     ${adminUsuarios()? '<span class="badge rev">admin</span>':''}</div>
     <div class="bd">${roster}
@@ -2272,11 +2362,12 @@ function exportarPlan(){
   bajar('plan-trabajo-cinex-'+hoy()+'.csv', filas);
 }
 
+sincronizarPlan();          // completa los montos del plan con el catálogo al arrancar
 pintarNube();
 (async ()=>{
   if(await sbConectar()){
     const rem = await sbCargar();
-    if(rem && fusionarRemoto(rem)){ save(); }
+    if(rem && fusionarRemoto(rem)){ sincronizarPlan(); save(); }
   }
   pintarNube();
   if(S.perfil) render();

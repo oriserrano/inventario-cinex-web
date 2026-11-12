@@ -343,6 +343,22 @@ button:active{transform:translateY(1px)}
 .qacts button{min-width:38px;min-height:34px;padding:6px 9px;font-size:13px}
 .qacts button:first-child{min-width:auto}
 
+/* Tablero ejecutivo: dos columnas, barras compactas */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;margin-bottom:12px}
+.grid2 .card{margin-bottom:0}
+@media (max-width:780px){ .grid2{grid-template-columns:1fr} }
+.avance{display:flex;align-items:center;gap:12px}
+.avance b{font-size:32px;line-height:1;font-variant-numeric:tabular-nums}
+.avance .bar{flex:1;height:13px;border-radius:999px;background:#eef2f6;overflow:hidden}
+.avance .bar i{display:block;height:100%;border-radius:999px;transition:width .4s}
+.filaest{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:13px}
+.filaest>span:first-child{flex:0 0 132px;color:var(--mut);font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filaest .bar{flex:1;height:9px;border-radius:999px;background:#eef2f6;overflow:hidden}
+.filaest .bar i{display:block;height:100%;border-radius:999px}
+.filaest b{min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
+.filaest .ad{min-width:74px;text-align:right}
+
 /* Campos de formulario con etiqueta */
 .fld{display:block;margin-bottom:12px}
 .fld span{display:block;font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:6px}
