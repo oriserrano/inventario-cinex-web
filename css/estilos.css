@@ -380,6 +380,34 @@ button:active{transform:translateY(1px)}
 .grupo.sub>summary{padding-left:20px;font-size:13px;min-height:44px;background:#fcfdfe}
 .grupo.sub .gk{font-weight:600;color:var(--ink)}
 
+/* Visitas: formulario, checklist, firma e historial */
+.vform{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+@media (max-width:640px){ .vform{grid-template-columns:1fr} }
+.campo{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--mut);font-weight:700}
+.campo select,.campo input{min-height:46px;padding:11px 13px;border:1px solid var(--line);
+  border-radius:11px;background:#fff;font-size:15px;color:var(--ink);width:100%}
+.chipsel{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px}
+.chipsel button{min-height:42px;padding:9px 14px;border:1px solid var(--line);border-radius:999px;
+  background:#fff;font-size:13.5px;font-weight:700;color:var(--mut);cursor:pointer}
+.chipsel button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.checks{display:flex;flex-direction:column;margin-bottom:14px}
+.chk{display:flex;gap:10px;align-items:flex-start;padding:11px 2px;font-size:14px;
+  border-bottom:1px dashed var(--line);cursor:pointer;min-height:46px}
+.chk input{width:20px;height:20px;margin-top:2px;accent-color:var(--brand);flex:none}
+.vitem textarea, textarea[data-vobs]{width:100%;border:1px solid var(--line);border-radius:11px;
+  padding:11px 12px;font-size:14.5px;font-family:inherit;resize:vertical;margin-bottom:14px}
+#vis-firma{width:100%;height:130px;border:1.5px dashed var(--line);border-radius:12px;
+  background:#fff;display:block;touch-action:none;cursor:crosshair;margin-bottom:8px}
+.vitem{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:#fff}
+.vh{display:flex;align-items:center;gap:10px;font-size:14px;flex-wrap:wrap}
+.vh span:first-child{flex:1;min-width:180px}
+.vh button{min-height:38px;padding:7px 12px;font-size:12.5px}
+.vareas{margin-top:7px;font-size:12.5px;font-weight:800;color:var(--brand);letter-spacing:.3px}
+.vchk{margin-top:6px;font-size:12.5px;color:var(--mut)}
+.vobs{margin-top:7px;font-size:13.5px;line-height:1.5;white-space:pre-wrap}
+.vfirma{margin-top:9px;height:52px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;padding:3px 8px}
+
 /* Campos de formulario con etiqueta */
 .fld{display:block;margin-bottom:12px}
 .fld span{display:block;font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:6px}

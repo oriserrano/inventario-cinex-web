@@ -323,6 +323,16 @@ document.addEventListener('toggle', e=>{
   vista.planAbiertos = arr;
 }, true);
 
+// visitas: el borrador vive en vista.vis para que render() no pierda lo escrito
+document.addEventListener('change', e=>{
+  if(!vista.vis || !e.target.matches) return;
+  if(e.target.matches('[data-vcine]')){ vista.vis.cine = e.target.value; vista.vis.areas = []; render(); }
+  else if(e.target.matches('[data-vfecha]')){ vista.vis.fecha = e.target.value; }
+});
+document.addEventListener('input', e=>{
+  if(vista.vis && e.target.matches && e.target.matches('[data-vobs]')) vista.vis.obs = e.target.value;
+});
+
 function render(){
   const app = document.getElementById('app');
   const y = window.scrollY;
@@ -336,8 +346,10 @@ function render(){
     vista.tab = 'resumen'; vista.modo = 'home'; vista.cine = null; scrollObj = 0;
   }
   if(vista.tab==='quehacer') app.innerHTML = queHacer();
+  else if(vista.tab==='visitas') app.innerHTML = visitas();
   else if(vista.tab==='gestion') app.innerHTML = gestion();
   else app.innerHTML = vista.modo==='home' ? home() : cineVista(DATA.cines.find(c=>c.c===vista.cine));
+  if(vista.tab==='visitas') bindFirma();
   document.querySelectorAll('[data-tab]').forEach(b=>{
     const ok = permitidos.indexOf(b.dataset.tab)>=0;
     b.hidden = !ok;
@@ -426,6 +438,118 @@ function planPorEstado(){
     return {k, txt, n:filas.length,
             monto: filas.reduce((s,a)=> s+(Number(a.monto)||0), 0)};
   }).filter(x=> x.n);
+}
+/* ================= VISITAS: checklist + firma + historial ================= */
+const CHECK_VISITA = [
+  ['eq',   'Equipos encendidos y probados en el sitio'],
+  ['est',  'Estados actualizados en el panel (verde / amarillo / rojo)'],
+  ['falt', 'Faltantes y equipos dañados confirmados'],
+  ['prec', 'Precios de reposición confirmados'],
+  ['obs',  'Observaciones anotadas para el plan'],
+];
+function fechaHoy(){ const d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function fechaBonita(f){ const p=String(f||'').split('-'); return p.length===3? p[2]+'/'+p[1]+'/'+p[0] : (f||'—'); }
+function borradorVisita(){
+  return {cine: vista.cine || (DATA.cines[0] && DATA.cines[0].c), fecha: fechaHoy(),
+          areas:[], check:{}, obs:'', firma:null};
+}
+function visitas(){
+  if(!vista.vis) vista.vis = borradorVisita();
+  const v = vista.vis;
+  const cine = DATA.cines.find(c=>c.c===v.cine) || DATA.cines[0];
+  const areas = ((cine && cine.ar) || []).map(a=>a.a);
+  const todas = S.visitas || [];
+  const lista = todas.filter(x=> !vista.visFil || vista.visFil==='todas' || x.cine===vista.visFil);
+  const cinesVis = [...new Set(todas.map(x=>x.cine))];
+  const hechos = CHECK_VISITA.filter(([k])=> v.check[k]).length;
+  return `
+  <div class="card secc"><div class="hd"><h2>Registrar visita</h2>
+    <span class="ad">${AUTOR()}</span></div><div class="bd">
+    <div class="vform">
+      <label class="campo"><span>Cine</span>
+        <select data-vcine>${DATA.cines.map(c=>`<option value="${c.c}" ${c.c===v.cine?'selected':''}>${c.n}</option>`).join('')}</select></label>
+      <label class="campo"><span>Fecha</span>
+        <input type="date" data-vfecha value="${v.fecha}"></label>
+    </div>
+    <div class="sb">Áreas recorridas</div>
+    <div class="chipsel">${areas.length? areas.map(a=>
+      `<button type="button" data-varea="${a}" class="${v.areas.indexOf(a)>=0?'on':''}">${a}</button>`).join('')
+      : '<span class="ad">Este cine todavía no tiene áreas.</span>'}</div>
+    <div class="sb">Checklist de la visita · ${hechos}/${CHECK_VISITA.length}</div>
+    <div class="checks">${CHECK_VISITA.map(([k,t])=>`
+      <label class="chk"><input type="checkbox" data-vcheck="${k}" ${v.check[k]?'checked':''}>
+        <span>${t}</span></label>`).join('')}</div>
+    <div class="sb">Observaciones</div>
+    <textarea data-vobs rows="3" placeholder="Qué se vio, qué falta, qué se acordó con el equipo del cine…">${(v.obs||'').replace(/</g,'&lt;')}</textarea>
+    <div class="sb">Firma del visitante</div>
+    <canvas id="vis-firma" width="640" height="180"></canvas>
+    <div class="rowbtn"><button id="vis-limpiar">Limpiar firma</button></div>
+    <div class="rowbtn"><button class="btn-p" id="vis-guardar">Guardar visita</button></div>
+  </div></div>
+
+  <div class="card secc"><div class="hd"><h2>Historial de visitas</h2>
+    <span class="ad">${todas.length} registrada${todas.length===1?'':'s'}</span></div><div class="bd">
+    <div class="filters">
+      <button data-vfil="todas" class="${!vista.visFil||vista.visFil==='todas'?'on':''}">Todas</button>
+      ${cinesVis.map(c=>`<button data-vfil="${c}" class="${vista.visFil===c?'on':''}">${c}</button>`).join('')}
+    </div>
+    ${lista.length? lista.map(x=>`
+      <div class="vitem">
+        <div class="vh"><span><b>${fechaBonita(x.fecha)}</b> · ${x.cine} · ${x.visitante||'—'}</span>
+          <span class="ad">${(x.check||[]).length}/${CHECK_VISITA.length}</span>
+          <button data-vdel="${x.id}">Borrar</button></div>
+        ${(x.areas&&x.areas.length)? `<div class="vareas">${x.areas.join(' · ')}</div>`:''}
+        ${(x.check&&x.check.length)? `<div class="vchk">${x.check.map(k=>{
+            const f = CHECK_VISITA.find(c=>c[0]===k); return f? f[1] : k; }).join(' · ')} ✓</div>`:''}
+        ${x.obs? `<div class="vobs">${x.obs.replace(/</g,'&lt;')}</div>`:''}
+        ${x.firma? `<img class="vfirma" src="${x.firma}" alt="Firma">`:''}
+      </div>`).join('')
+      : '<div class="empty-note">Todavía no hay visitas registradas.</div>'}
+  </div></div>`;
+}
+function bindFirma(){
+  const c = document.getElementById('vis-firma');
+  if(!c || !c.getContext) return;
+  const ctx = c.getContext('2d');
+  const pintarFondo = ()=>{ ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); };
+  pintarFondo();
+  ctx.lineWidth = 5; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#0a5cad';
+  if(vista.vis && vista.vis.firma){
+    const img = new Image();
+    img.onload = ()=> ctx.drawImage(img,0,0,c.width,c.height);
+    img.src = vista.vis.firma;
+  }
+  let dib = false;
+  const pos = e=>{ const r=c.getBoundingClientRect();
+    return [(e.clientX-r.left)*c.width/r.width, (e.clientY-r.top)*c.height/r.height]; };
+  const cortar = ()=>{ if(!dib) return; dib=false;
+    if(vista.vis) vista.vis.firma = c.toDataURL('image/png'); };
+  c.onpointerdown = e=>{ e.preventDefault(); dib=true; const [x,y]=pos(e);
+    ctx.beginPath(); ctx.moveTo(x,y); try{ c.setPointerCapture(e.pointerId); }catch(err){} };
+  c.onpointermove = e=>{ if(!dib) return; const [x,y]=pos(e); ctx.lineTo(x,y); ctx.stroke(); };
+  c.onpointerup = cortar;
+  c.onpointercancel = cortar;
+  c.onpointerleave = cortar;
+  c._limpiar = ()=>{ pintarFondo(); if(vista.vis) vista.vis.firma = null; };
+}
+function guardarVisita(){
+  const v = vista.vis;
+  if(!v) return;
+  if(!v.cine){ flash('Elige el cine de la visita'); return; }
+  const hayAlgo = v.areas.length || Object.keys(v.check).some(k=>v.check[k]) || (v.obs||'').trim();
+  if(!hayAlgo){ flash('Marca al menos un área, un ítem del checklist o una observación'); return; }
+  const reg = {id:'v-'+Date.now(), fecha:v.fecha||fechaHoy(), cine:v.cine,
+               visitante:AUTOR(), areas:v.areas.slice(),
+               check:CHECK_VISITA.filter(([k])=> v.check[k]).map(([k])=>k),
+               obs:(v.obs||'').trim(), firma:v.firma||null,
+               ts:new Date().toISOString()};
+  S.visitas = S.visitas || [];
+  S.visitas.unshift(reg);
+  save();
+  vista.vis = borradorVisita();
+  render();
+  flash('Visita registrada ✓');
 }
 function home(){
   const tot = conteosTotales();
@@ -1845,9 +1969,10 @@ function iniciales(nombre){
 function tabsPermitidos(){
   if(!S.perfil) return [];
   const rol = ROL();
-  if(rol==='soporte') return ['resumen'];                      // portada: alertas + cines
-  if(rol==='infraestructura') return ['resumen','gestion'];
-  return ['resumen','quehacer','gestion'];                     // coordinación y gerencia
+  const base = ['resumen','visitas'];                          // todos registran visitas
+  if(rol==='soporte') return base;
+  if(rol==='infraestructura') return base.concat(['gestion']);
+  return base.concat(['quehacer','gestion']);                  // coordinación y gerencia
 }
 function veMeta(){ return ROL()==='gerencia' || ROL()==='coordinacion'; }
 
@@ -2274,6 +2399,31 @@ document.addEventListener('click', async ev=>{
 
   const gs = t.closest('[data-gsec]');
   if(gs){ vista.gseccion = gs.dataset.gsec; scrollObj = 0; render(); return; }
+
+  // --- VISITAS ---
+  const va = t.closest('[data-varea]');
+  if(va && vista.vis){ const a = va.dataset.varea, i = vista.vis.areas.indexOf(a);
+    if(i>=0) vista.vis.areas.splice(i,1); else vista.vis.areas.push(a);
+    render(); return; }
+  const vc = t.closest('[data-vcheck]');
+  if(vc && vista.vis){ const k = vc.dataset.vcheck;
+    vista.vis.check[k] = !vista.vis.check[k]; render(); return; }
+  const vf = t.closest('[data-vfil]');
+  if(vf){ vista.visFil = vf.dataset.vfil; render(); return; }
+  if(t.id==='vis-guardar'){ guardarVisita(); return; }
+  if(t.id==='vis-limpiar'){ const c = document.getElementById('vis-firma');
+    if(c && c._limpiar) c._limpiar(); return; }
+  const vd = t.closest('[data-vdel]');
+  if(vd){
+    const id = vd.dataset.vdel;
+    const reg = (S.visitas||[]).find(x=>x.id===id);
+    pedir({titulo:'Borrar visita', campos:[],
+      sub: reg? (fechaBonita(reg.fecha)+' · '+reg.cine+' · '+(reg.visitante||'')) : '',
+      ok:'Borrar'}).then(r=>{ if(!r) return;
+        S.visitas = (S.visitas||[]).filter(x=>x.id!==id);
+        save(); render(); flash('Visita borrada ✓'); });
+    return;
+  }
 
   const edit = t.closest('[data-edit]');
   if(edit){ abrirEdicion(edit.dataset.edit); return; }
