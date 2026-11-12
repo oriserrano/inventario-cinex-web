@@ -201,6 +201,40 @@ function nuevosDe(c){
   return porArea;
 }
 function pendientes(){ return S.mov.filter(m=>m.rev==='pendiente'); }
+/* Cola de revisión agrupada por cine: cada fila con Ver ✓ ✗ y aprobación por cine */
+function colaAgrupada(movs, conGlobal){
+  if(!movs.length) return '<div class="empty-note">No hay cambios esperando aprobación. ✓</div>';
+  const porCine = {};
+  movs.forEach(m=>{ const k = m.cine||'Sin cine'; (porCine[k]=porCine[k]||[]).push(m); });
+  const cines = Object.keys(porCine).sort((a,b)=> porCine[b].length-porCine[a].length);
+  const grupos = cines.map(k=>{
+    const lista = porCine[k];
+    const filas = lista.map(m=>{
+      const i = S.mov.indexOf(m);
+      const tag = m.tipoMov ? (m.tipoMov==='alta'?'ALTA':(m.tipoMov==='retiro'?'RETIRO':'BORRA')) : 'CAMBIO';
+      return `<div class="alerta q">
+        <span class="badge ${m.tipoMov?'mal':'rev'}">${tag}</span>
+        <span style="flex:1"><span class="ti">${m.eq} · ${m.comp}</span><br>
+          <span class="de">${m.area? m.area+' · ':''}${m.de} → <b>${m.a}</b>${
+            m.causa? ' · '+m.causa:''}<br><b>${m.autor||'Sin perfil'}</b> · ${m.ts.slice(5,16).replace('T',' ')}</span></span>
+        <span class="qacts">
+          <button data-verfic="${m.cine||''}" title="Ver la ficha del equipo">Ver</button>
+          <button data-aprobar="${i}" title="Aprobar">✓</button>
+          <button data-rechazar="${i}" title="Rechazar">✗</button>
+        </span>
+      </div>`;
+    }).join('');
+    return `<div class="qcine">
+      <div class="qhd"><b>${k}</b>
+        <span class="ad">${lista.length} ${lista.length===1?'cambio':'cambios'}</span>
+        <button data-aprobar-todo="${k}" title="Aprueba todo lo de este cine">✓ Aprobar todo</button></div>
+      ${filas}
+    </div>`;
+  }).join('');
+  const global = conGlobal? `<div class="rowbtn" style="margin-top:10px">
+      <button class="btn-p" data-aprobar-todo="todos">✓ Aprobar los ${movs.length}</button></div>` : '';
+  return grupos + global;
+}
 function modeloDe(it){
   if(!it) return '';
   const m = S.mod[it.id];
@@ -270,6 +304,15 @@ function render(){
     const ok = permitidos.indexOf(b.dataset.tab)>=0;
     b.hidden = !ok;
     b.classList.toggle('on', ok && b.dataset.tab===vista.tab);
+    if(b.dataset.tab==='gestion'){
+      const n = pendientes().length;
+      let bd = b.querySelector('.tabnum');
+      if(n){
+        if(!bd){ bd = document.createElement('span'); bd.className='tabnum'; b.appendChild(bd); }
+        bd.textContent = n;
+        bd.title = n+' cambios esperando tu revisión';
+      } else if(bd) bd.remove();
+    }
   });
   const bp = document.getElementById('btn-perfil');
   if(bp) bp.textContent = S.perfil ? AUTOR().split(' ')[0] : 'Perfil';
@@ -381,6 +424,14 @@ function home(){
       </div>
     </div></div>
 
+  ${ROL()!=='soporte'? `<div class="card secc cola-focus">
+    <div class="hd"><h2>Cola de revisión</h2>
+      ${pend.length? `<span class="badge mal">${pend.length}</span>`:''}
+      ${pend.length? `<button data-gsec-foco="aprob">Ver en Gestión</button>`:''}</div>
+    <div class="bd">${colaAgrupada(pend.slice(0,8), false)}
+      ${pend.length>8? `<div class="ad" style="margin-top:8px">y ${pend.length-8} más en Gestión → Aprobaciones</div>`:''}
+    </div></div>` : ''}
+
   <div class="card secc"><div class="hd"><h2>Mejora vs estado inicial</h2></div><div class="bd">
     <div class="split">
       <i style="${seg(m.mej/den*100)};background:var(--ok)"></i>
@@ -431,15 +482,6 @@ function home(){
         </div>`).join('')
         : '<div class="empty-note">Sin alertas: todo operativo y revisado.</div>'}
     </div></div>
-
-  ${pend.length? `<div class="card secc"><div class="hd"><h2>Revisión del coordinador</h2></div>
-    <div class="bd">${pend.map(x=>`<div class="alerta">
-        <span class="badge rev">PEND</span>
-        <span style="flex:1"><span class="ti">${x.eq} · ${x.comp}</span><br>
-          <span class="de">${x.cine} · ${x.area} · ${x.de} → <b>${x.a}</b>
-          ${x.causa? '· '+x.causa:''} · ${x.ts.slice(0,10)}</span></span>
-        <button data-aprobar="${S.mov.indexOf(x)}">✓ Aprobar</button>
-      </div>`).join('')}</div></div>` : ''}
 
   <div class="legend">
     <span><i class="sw" style="background:var(--ok)"></i>Operativo</span>
@@ -611,8 +653,12 @@ async function borrarEquipo(){
   S.borrados.push(mEd);
   delete S.est[mEd]; delete S.notas[mEd]; delete S.mod[mEd]; delete S.retirados[mEd];
   S.acc = S.acc.filter(a=> !(a.key && a.key.indexOf(mEd+'|')===0));
+  const dBor = dondeEsta(mEd) || {c:{c:''}, area:''};
+  S.mov.push({ts:new Date().toISOString(), id:mEd, cine:dBor.c.c||'', area:dBor.area||'',
+              eq:nombreDe(it), comp:'Borrado de equipo', de:'Activo', a:'Borrado',
+              causa:'', rev:'pendiente', autor:AUTOR(), tipoMov:'borrado', ref:mEd});
   save(); cerrarEdicion(); render();
-  flash('Equipo borrado ✓');
+  flash('Equipo borrado ✓ · va a revisión del coordinador');
 }
 async function retirarEquipo(){
   const it = findItem(mEd); if(!it) return;
@@ -633,6 +679,11 @@ async function retirarEquipo(){
   if(!r) return;
   S.retirados[mEd] = {motivo:r.motivo.trim(), ts:new Date().toISOString(), autor:AUTOR()};
   S.acc = S.acc.filter(a=> !(a.key && a.key.indexOf(mEd+'|')===0));
+  const dRet = dondeEsta(mEd) || {c:{c:''}, area:''};
+  S.mov.push({ts:new Date().toISOString(), id:mEd, cine:dRet.c.c||'', area:dRet.area||'',
+              eq:nombreDe(it), comp:'Retiro de equipo', de:'Activo', a:'Retirado',
+              causa:r.motivo.trim(), rev:'pendiente', autor:AUTOR(),
+              tipoMov:'retiro', ref:mEd});
   save(); cerrarEdicion(); render();
   flash('Equipo retirado ✓ '+r.motivo.trim());
 }
@@ -919,8 +970,12 @@ function crearEquipo(){
     S.est[id] = {e:'pend'};
   }
   (S.nuevos[c.c] = S.nuevos[c.c]||[]).push(it);
+  S.mov.push({ts:new Date().toISOString(), id:it.id, cine:c.c, area:mEq.area,
+              eq:nombre, comp:'Alta de equipo', de:'—', a:'Nuevo equipo',
+              causa:'', rev:'pendiente', autor:AUTOR(), tipoMov:'alta', ref:it.id});
   save(); cerrarEquipo(); render();
-  flash(nombre+' agregado'+(comps.length? ' con '+comps.length+' componentes':'')+' ✓');
+  flash(nombre+' agregado'+(comps.length? ' con '+comps.length+' componentes':'')+
+        ' ✓ · va a revisión del coordinador');
 }
 
 /* ================= PLAN DE TRABAJO (QUÉ HACER) ================= */
@@ -1199,14 +1254,7 @@ function gestion(){
         <span class="ad">${nombres.join(' · ')||'—'}${S.perfil && nombres.includes(S.perfil.nombre)?
           ' <b style="color:var(--brand)">← activo</b>':''}</span></span></div>`).join('');
 
-  const colaHTML = pend.length? pend.map(x=>`<div class="alerta">
-      <span class="badge rev">PEND</span>
-      <span style="flex:1"><span class="ti">${x.eq} · ${x.comp}</span><br>
-        <span class="de">${x.cine} · ${x.area} · ${x.de} → <b>${x.a}</b>
-        ${x.causa? '· '+x.causa:''}<br>cargado por <b>${x.autor||'Sin perfil'}</b> · ${x.ts.slice(0,16).replace('T',' ')}</span></span>
-      <button data-aprobar="${S.mov.indexOf(x)}">✓ Aprobar</button>
-      <button data-rechazar="${S.mov.indexOf(x)}">✗</button>
-    </div>`).join('') : '<div class="empty-note">No hay cambios esperando aprobación.</div>';
+  const colaHTML = colaAgrupada(pend, true);
 
   const auditHTML = logs.map(x=>`<div class="log">
       <span class="who">${(x.autor||'Sin perfil').split(' ')[0]}</span>
@@ -1218,7 +1266,7 @@ function gestion(){
       <span class="when">${x.ts.slice(5,16).replace('T',' ')}</span>
     </div>`).join('') || '<div class="empty-note">Sin movimientos todavía.</div>';
 
-  const sec = vista.gseccion || "tablero";
+  const sec = vista.gseccion || (ROL()==='coordinacion' ? "aprob" : "tablero");
   const GSEC = [["tablero","Tablero"],["aprob","Aprobaciones"],["usuarios","Usuarios"],
                 ["auditoria","Auditoría"],["personas","Personas"],["exportar","Exportar"]];
 
@@ -1595,6 +1643,8 @@ function entrarAcceso(){
   const rol = rolDe(n);
   S.perfil = {nombre:n, rol};
   accesoSel = null;
+  // Coordinación arranca en lo que debe revisar
+  if(rol==='coordinacion'){ vista.tab='gestion'; vista.gseccion='aprob'; scrollObj=0; }
   save(); render();
   flash(guardada? 'Entraste como '+ROL_TXT[rol]+' · '+n : 'Clave creada ✓ Entraste como '+n);
 }
@@ -1840,9 +1890,27 @@ document.addEventListener('click', async ev=>{
       validar: v => !(v.motivo||'').trim()? 'Escribe el motivo del rechazo.' : null});
     if(!rr) return;
     const motivo = rr.motivo.trim();
-    if(S.mov[i]){ S.mov[i].rev='rechazado'; S.mov[i].com=motivo;
-      S.mov[i].rap=new Date().toISOString(); S.mov[i].aprobadoPor=AUTOR(); }
-    save(); render(); flash('Cambio rechazado');
+    const m = S.mov[i];
+    let accion = 'Cambio rechazado';
+    if(m){
+      m.rev='rechazado'; m.com=motivo;
+      m.aprobarTs = new Date().toISOString(); m.rap = m.aprobarTs;
+      m.aprobadoPor=AUTOR();
+      // deshacer lo estructural: el rechazo devuelve el inventario a como estaba
+      if(m.tipoMov==='alta' && m.ref && S.borrados.indexOf(m.ref)<0){
+        S.borrados.push(m.ref);
+        delete S.est[m.ref]; delete S.notas[m.ref]; delete S.mod[m.ref];
+        S.acc = S.acc.filter(a=> !(a.key && a.key.indexOf(m.ref+'|')===0));
+        accion = 'Alta rechazada · el equipo no se incorpora';
+      } else if(m.tipoMov==='retiro' && m.ref){
+        delete S.retirados[m.ref];
+        accion = 'Retiro rechazado · el equipo vuelve a los totales';
+      } else if(m.tipoMov==='borrado' && m.ref){
+        S.borrados = S.borrados.filter(x=> x!==m.ref);
+        accion = 'Borrado rechazado · el equipo se restaura';
+      }
+    }
+    save(); render(); flash(accion);
     return;
   }
 
@@ -1877,6 +1945,31 @@ document.addEventListener('click', async ev=>{
   if(t.id==='m-si'){ confirmarModal(); return; }
   if(t.id==='m-no'){ cerrarModal(); return; }
 
+  const aprTodo = t.closest('[data-aprobar-todo]');
+  if(aprTodo){
+    if(ROL()!=='coordinacion' && ROL()!=='gerencia'){
+      flash('Solo Coordinación o Gerencia aprueban'); return;
+    }
+    const filtro = aprTodo.dataset.aprobarTodo;
+    let n = 0;
+    S.mov.forEach(m=>{
+      if(m.rev!=='pendiente') return;
+      if(filtro!=='todos' && m.cine!==filtro) return;
+      m.rev='ok'; m.rap=new Date().toISOString(); m.aprobadoPor=AUTOR(); n++;
+    });
+    save(); render();
+    flash(n? n+' cambios aprobados ✓' : 'Nada pendiente con ese filtro');
+    return;
+  }
+
+  const verfic = t.closest('[data-verfic]');
+  if(verfic){
+    const cine = verfic.dataset.verfic;
+    if(cine){ scrollObj=0; vista={...vista, modo:'cine', cine, filtro:'all', areaF:'todas'};
+      vista.tab='resumen'; render(); }
+    return;
+  }
+
   const apr = t.closest('[data-aprobar]');
   if(apr){
     const mov = S.mov[+apr.dataset.aprobar];
@@ -1898,6 +1991,9 @@ document.addEventListener('click', async ev=>{
   if(t.id==='volver'){ scrollObj=0; vista={...vista, modo:'home', cine:null, filtro:'all'}; render(); return; }
 
   if(t.id==='btn-entrar-bloq'){ abrirPerfil(); return; }
+
+  const gsf = t.closest('[data-gsec-foco]');
+  if(gsf){ scrollObj=0; vista.tab='gestion'; vista.gseccion=gsf.dataset.gsecFoco; render(); return; }
 
   const gs = t.closest('[data-gsec]');
   if(gs){ vista.gseccion = gs.dataset.gsec; scrollObj = 0; render(); return; }

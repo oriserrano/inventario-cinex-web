@@ -328,6 +328,21 @@ button:active{transform:translateY(1px)}
 .btn-d:hover{background:#fdeceb;border-color:#e2a9a4}
 .legend-fact{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--mut);font-weight:600}
 
+/* Foco del coordinador: contador en la pestaña + cola agrupada */
+.tabnum{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;
+  margin-left:7px;border-radius:999px;background:#c0392b;color:#fff;font-size:11.5px;
+  font-weight:800;font-variant-numeric:tabular-nums;vertical-align:middle}
+.cola-focus{border-color:#f3d1cb;box-shadow:0 6px 18px rgba(192,57,43,.10)}
+.cola-focus .hd h2{color:#a93226}
+.qcine{border:1px solid var(--line);border-radius:12px;padding:9px 10px;margin-bottom:9px;background:#fbfcfd}
+.qhd{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.qhd b{font-size:13.5px}
+.qhd button{margin-left:auto;min-height:34px;padding:6px 12px;font-size:12.5px}
+.q .badge{flex:none}
+.qacts{display:flex;gap:6px;flex:none}
+.qacts button{min-width:38px;min-height:34px;padding:6px 9px;font-size:13px}
+.qacts button:first-child{min-width:auto}
+
 /* Campos de formulario con etiqueta */
 .fld{display:block;margin-bottom:12px}
 .fld span{display:block;font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:6px}
