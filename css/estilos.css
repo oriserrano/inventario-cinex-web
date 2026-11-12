@@ -380,6 +380,26 @@ button:active{transform:translateY(1px)}
 .grupo.sub>summary{padding-left:20px;font-size:13px;min-height:44px;background:#fcfdfe}
 .grupo.sub .gk{font-weight:600;color:var(--ink)}
 
+.estop{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+.estop button{min-height:44px;padding:10px 14px;border:1.5px solid var(--line);border-radius:999px;
+  background:#fff;font-family:inherit;font-size:13.5px;font-weight:800;color:var(--mut);cursor:pointer}
+.estop button:hover{border-color:#c3d2e0}
+.estop button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.estop button.on[data-estado="malo"]{background:var(--mal);border-color:var(--mal)}
+.estop button.on[data-estado="rep"]{background:#b98200;border-color:#b98200}
+.estop button.on[data-estado="falta"]{background:#7a5a00;border-color:#7a5a00}
+.estop button.on[data-estado="pend"]{background:#6b7785;border-color:#6b7785}
+
+.discos{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:7px}
+.disco{width:16px;height:16px;border-radius:50%;border:2px solid #fff;padding:0;
+  box-shadow:0 0 0 1px rgba(0,0,0,.16);cursor:pointer;flex:none}
+button.disco{min-height:0}
+.disco.ok{background:#1f9d55}
+.disco.deg{background:#e0a100}
+.disco.mal{background:#d13438}
+.disco:hover{transform:scale(1.15)}
+.dad{font-size:11px;font-weight:800;color:var(--mut);letter-spacing:.2px}
+
 /* Línea de causa dentro de la tarjeta + detalle de incidencias */
 .dlinea{display:block;width:100%;margin-top:6px;padding:5px 7px;border:0;border-radius:8px;
   background:rgba(255,255,255,.75);font-family:inherit;font-size:11.5px;font-weight:700;

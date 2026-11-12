@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/estilos.css?v=1794511474">
+<link rel="stylesheet" href="css/estilos.css?v=1794512974">
 </head>
 <body>
 <header class="top">
@@ -33,15 +33,25 @@
 
 <div class="modal" id="modal">
   <div class="mbox">
-    <h3>¿Qué le pasó al equipo?</h3>
-    <div class="sb" id="m-sb">Selecciona la causa del fallo</div>
-    <div class="causas" id="m-causas"></div>
-    <input type="text" id="m-det" placeholder="Detalle (opcional): ej. cable de red de3 m a sustituir">
-    <div class="sb" style="margin-bottom:7px">Acción requerida</div>
-    <div class="causas" id="m-accion">
-      <button data-accion="reparar" class="on">Reparar</button>
-      <button data-accion="sustituir">Sustituir</button>
-      <button data-accion="revisar">Revisar</button>
+    <h3>Estado del equipo</h3>
+    <div class="sb" id="m-sb">—</div>
+    <div class="estop" id="m-estados">
+      <button data-estado="ok">Operativo</button>
+      <button data-estado="rep">En reparación</button>
+      <button data-estado="malo">Dañado</button>
+      <button data-estado="falta">Falta</button>
+      <button data-estado="pend">Sin revisar</button>
+    </div>
+    <div id="m-fallo" hidden>
+      <div class="sb" style="margin-top:13px">¿Qué le pasó?</div>
+      <div class="causas" id="m-causas"></div>
+      <input type="text" id="m-det" placeholder="Detalle (opcional): ej. cable de red de3 m a sustituir">
+      <div class="sb" style="margin-bottom:7px">Acción requerida</div>
+      <div class="causas" id="m-accion">
+        <button data-accion="reparar" class="on">Reparar</button>
+        <button data-accion="sustituir">Sustituir</button>
+        <button data-accion="revisar">Revisar</button>
+      </div>
     </div>
     <label class="chk"><input type="checkbox" id="m-rev" checked>
       Enviar a revisión del coordinador</label>
@@ -162,7 +172,7 @@
   </div>
 </div>
 
-<script src="https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js?v=1794511474"></script>
-<script src="js/app.js?v=1794511474"></script>
+<script src="https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js?v=1794512974"></script>
+<script src="js/app.js?v=1794512974"></script>
 </body>
 </html>

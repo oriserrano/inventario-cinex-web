@@ -172,9 +172,11 @@ function nuevoDe(id, idx, a, causa, rev){
       if(mismo){ m.rev='ok'; m.rap=new Date().toISOString(); }
     });
   }
-  S.mov.push({ts:new Date().toISOString(), id, cine:cineReal, area:areaReal,
+  // Centro de datos: nunca pasa por el coordinador
+  const revFinal = esCentroDeDatos(id) ? 'ok' : (rev || 'ok');
+  S.mov.push({ts: new Date().toISOString(), id, cine:cineReal, area:areaReal,
               eq: it? it.n : '', comp: etiquetaComp(id,idx),
-              de: LABEL[viejo||'pend'], a: LABEL[a], causa: causa||'', rev: rev||'ok',
+              de: LABEL[viejo||'pend'], a: LABEL[a], causa: causa||'', rev: revFinal,
               autor: AUTOR()});
   if(S.mov.length>800) S.mov = S.mov.slice(-800);
   return true;
@@ -947,6 +949,22 @@ function movsDe(id, ci){
 function fechaCorta(ts){ if(!ts) return ''; const f=String(ts).slice(0,10).split('-');
   return f.length===3? f[2]+'/'+f[1] : ''; }
 /* Línea "⚠ causa · fecha" bajo el componente: es la puerta al detalle */
+const ES_DISCO = n => /disco/i.test(n||'');
+const DISCO_EST = ['ok','deg','mal'];
+const DISCO_TXT = {ok:'bueno', deg:'degradado', mal:'dañado'};
+function discosDe(id, ci){
+  const key = id+'|'+ci;
+  if(!S.discos) S.discos = {};
+  if(!S.discos[key]) S.discos[key] = ['ok','ok','ok','ok'];   //4 por defecto
+  return S.discos[key];
+}
+function discosHtml(id, ci){
+  const arr = discosDe(id, ci);
+  return `<div class="discos">${arr.map((e,i)=>
+    `<button type="button" class="disco ${e}" data-disco="${id}|${ci}|${i}"
+      title="Disco ${i+1}: ${DISCO_TXT[e]||e} — toca para cambiarlo"></button>`).join('')}
+    <span class="dad">${arr.length} discos</span></div>`;
+}
 function detalleLinea(it, ci){
   const est = (S.est[it.id]||{})[ci];
   const movs = movsDe(it.id, ci);
@@ -1007,6 +1025,15 @@ function abrirDetalle(id, ci){
       : '<div class="empty-note">Sin movimientos: así vino del inventario.</div>');
 
   const nombre = ch? (ETIQ[ch.n]||ch.n) : nombreDe(it);
+  if(ES_DISCO(nombre)){
+    const arr = discosDe(id, ci);
+    estBox.innerHTML += `<div class="discos" style="margin-top:9px">${arr.map((e,i)=>
+      `<span class="disco ${e}" title="Disco ${i+1}: ${DISCO_TXT[e]}"></span>`).join('')}
+      <span class="dad">${arr.length} discos</span></div>
+      <div class="rowbtn" style="margin-top:9px">
+        <button data-dadd="${id}|${ci}">+ Agregar disco</button>
+        <button data-ddel="${id}|${ci}">Quitar disco</button></div>`;
+  }
   const acc = (S.acc||[]).find(a=> a.key===id+'|'+ci) ||
               (S.acc||[]).find(a=> a.cine===d.c.c && a.area===d.area &&
                  a.eq===nombreDe(it) && a.comp===nombre);
@@ -1052,6 +1079,7 @@ function itemHtml(it){
         ${nombre==='VTID' && tienePinpad ? '' :
           `<div class="mv ${val?'':'vac'}" ${esCpu? `data-mod="${it.id}"` : `data-cmod="${it.id}|${ci}"`}>${val||'+ Modelo'}</div>`}
         ${campoVtid}
+        ${ES_DISCO(nombre)? discosHtml(it.id, ci) : ''}
         ${detalleLinea(it, ci)}
       </div>`;
     };
@@ -1926,27 +1954,58 @@ function pintarCausas(sel){
       ${c===sel?'class="on"':''}>${c}</button>`).join('') +
     `<button data-causa-nueva style="border-style:dashed">+ Agregar causa</button>`;
 }
-function abrirModal(id, idx, nuevo, viejo){
-  mPend = {id, idx, nuevo, viejo}; mCausa='';
-  const it = findItem(id);
+function esCentroDeDatos(id){
+  const d = dondeEsta(id);
+  return !!(d && /centro de datos/i.test(d.area||''));
+}
+function estadoActualDe(id, idx){
+  const it = findItem(id) || {};
+  const e = S.est[id] || (S.est[id]={});
+  if(idx==='e') return e.e || it.e || 'pend';
+  if(it.c && it.c[idx]) return e[idx] || it.c[idx].e || 'pend';
+  return e[idx] || 'pend';
+}
+function actualizarFalloModal(){
+  if(!mPend) return;
+  const fallo = mPend.nuevo==='malo' || mPend.nuevo==='rep';
+  const box = document.getElementById('m-fallo');
+  if(box) box.hidden = !fallo;
+  const it = findItem(mPend.id);
   document.getElementById('m-sb').textContent =
-    `${it? it.n:''} · ${etiquetaComp(id,idx)} · ${LABEL[viejo||'pend']} → ${LABEL[nuevo]}`;
+    `${it? it.n:''} · ${etiquetaComp(mPend.id, mPend.idx)} · actual: ${
+      LABEL[mPend.viejo]} → ${LABEL[mPend.nuevo]}`;
+}
+function abrirModal(id, idx){
+  const it = findItem(id); if(!it) return;
+  const actual = estadoActualDe(id, idx);
+  mPend = {id, idx, nuevo: actual, viejo: actual}; mCausa='';
+  const d = dondeEsta(id);
+  const enCD = esCentroDeDatos(id);
+  document.getElementById('m-sb').textContent =
+    `${it.n} · ${etiquetaComp(id,idx)} · Estado actual: ${LABEL[actual]}`;
+  document.querySelectorAll('#m-estados [data-estado]').forEach(b=>
+    b.classList.toggle('on', b.dataset.estado===actual));
   pintarCausas('');
   document.getElementById('m-det').value='';
   document.querySelectorAll('[data-accion]').forEach(b=>
     b.classList.toggle('on', b.dataset.accion==='reparar'));
-  document.getElementById('m-rev').checked = true;
+  const lbl = document.getElementById('m-rev').closest('label');
+  lbl.hidden = !!enCD;                       // Centro de datos: pasa directo
+  document.getElementById('m-rev').checked = !enCD;
+  actualizarFalloModal();
   document.getElementById('modal').classList.add('on');
 }
 function cerrarModal(){ document.getElementById('modal').classList.remove('on'); mPend=null; }
 function confirmarModal(){
   if(!mPend) return;
   const det = document.getElementById('m-det').value.trim();
-  const rev = document.getElementById('m-rev').checked ? 'pendiente' : 'ok';
+  const enCD = esCentroDeDatos(mPend.id);
+  const rev = (enCD || !document.getElementById('m-rev').checked) ? 'ok' : 'pendiente';
   const causa = [mCausa, det].filter(Boolean).join(' — ');
   const accSel = document.querySelector('[data-accion].on');
   const tipo = ACC_MAP[(accSel && accSel.dataset.accion) || 'reparar'] || 'reparar';
-  const {id, idx, nuevo} = mPend;
+  const {id, idx, nuevo, viejo} = mPend;
+  if(nuevo===viejo && !causa){ cerrarModal(); return; }   // no cambió nada
   const key = id+'|'+idx;
   if(nuevoDe(id, idx, nuevo, causa, rev)){
     S.accionComp[key] = tipo;                 // decide qué va al plan
@@ -2638,37 +2697,46 @@ document.addEventListener('click', async ev=>{
   if(t.id==='dt-cerrar' || t.id==='modal-det'){
     document.getElementById('modal-det').classList.remove('on'); return; }
 
-  const comp = t.closest('[data-comp]');
-  if(comp){
-    const raw = comp.dataset.comp, k = raw.lastIndexOf('|');
-    const id = raw.slice(0,k), ci = +raw.slice(k+1);
-    const e = S.est[id] || (S.est[id]={});
-    const viejo = e[ci] || 'pend';
-    const nuevo = siguiente(viejo);
-    if((nuevo==='malo'||nuevo==='rep') && viejo!==nuevo){ abrirModal(id, ci, nuevo, viejo); return; }
-    nuevoDe(id, ci, nuevo);
+  const dis = t.closest('[data-disco]');
+  if(dis){
+    const raw = dis.dataset.disco;
+    const i1 = raw.lastIndexOf('|'), i = +raw.slice(i1+1);
+    const r2 = raw.slice(0, i1), j = r2.lastIndexOf('|');
+    const id = r2.slice(0, j), ci = +r2.slice(j+1);
+    const arr = discosDe(id, ci);
+    arr[i] = DISCO_EST[(DISCO_EST.indexOf(arr[i]) + 1) % DISCO_EST.length];
     save(); render(); return;
   }
+  const dadd = t.closest('[data-dadd]');
+  if(dadd){ const raw = dadd.dataset.dadd, k = raw.lastIndexOf('|');
+    const id = raw.slice(0,k), ci = +raw.slice(k+1);
+    discosDe(id, ci).push('ok'); save(); render(); abrirDetalle(id, ci);
+    flash('Disco agregado ✓'); return; }
+  const ddel = t.closest('[data-ddel]');
+  if(ddel){ const raw = ddel.dataset.ddel, k = raw.lastIndexOf('|');
+    const id = raw.slice(0,k), ci = +raw.slice(k+1);
+    const arr = discosDe(id, ci);
+    if(arr.length>1) arr.pop(); else { flash('Debe quedar al menos1 disco'); return; }
+    save(); render(); abrirDetalle(id, ci);
+    flash('Disco quitado ✓'); return; }
+
+  const comp = t.closest('[data-comp]');
+  if(comp){ const raw = comp.dataset.comp, k = raw.lastIndexOf('|');
+    abrirModal(raw.slice(0,k), +raw.slice(k+1)); return; }
 
   const chip = t.closest('[data-chip]');
-  if(chip){
-    const id = chip.dataset.item, ci = +chip.dataset.chip;
-    const e = S.est[id] || (S.est[id]={});
-    const viejo = e[ci] || 'pend';
-    const nuevo = siguiente(viejo);
-    if((nuevo==='malo'||nuevo==='rep') && viejo!==nuevo){ abrirModal(id, ci, nuevo, viejo); return; }
-    nuevoDe(id, ci, nuevo);
-    save(); render(); return;
-  }
+  if(chip){ abrirModal(chip.dataset.item, +chip.dataset.chip); return; }
+
   const single = t.closest('[data-single]');
-  if(single){
-    const id = single.dataset.single;
-    const e = S.est[id] || (S.est[id]={});
-    const viejo = e.e || 'pend';
-    const nuevo = siguiente(viejo);
-    if((nuevo==='malo'||nuevo==='rep') && viejo!==nuevo){ abrirModal(id, 'e', nuevo, viejo); return; }
-    nuevoDe(id, 'e', nuevo);
-    save(); render(); return;
+  if(single){ abrirModal(single.dataset.single, 'e'); return; }
+
+  // selector de estado dentro de la ventana
+  const estBtn = t.closest('#m-estados [data-estado]');
+  if(estBtn && mPend){
+    mPend.nuevo = estBtn.dataset.estado;
+    document.querySelectorAll('#m-estados [data-estado]').forEach(b=>
+      b.classList.toggle('on', b===estBtn));
+    actualizarFalloModal(); return;
   }
 
   const nota = t.closest('[data-note]');
