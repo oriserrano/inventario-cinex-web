@@ -94,6 +94,7 @@ function flash(m){ const f=document.getElementById('flash'); f.textContent=m; f.
 function save(){
   try{ S.hist[hoy()] = conteosTotales(); localStorage.setItem(KEY, JSON.stringify(S)); }
   catch(e){ flash('No se pudo guardar en este navegador'); }
+  sbProgramar();
 }
 
 function ensureIds(){
@@ -1192,6 +1193,101 @@ function confirmarModal(){
   flash(rev==='pendiente' ? 'Guardado · en revisión del coordinador' : 'Guardado ✓');
 }
 
+/* ================= NUBE: Supabase (datos compartidos entre dispositivos) ================= */
+const SB = {
+  url: 'https://gowtxlbyyjhsuefgyvoa.supabase.co',
+  key: 'sb_publishable_DDSHL0mYSKTB0C2rfxy5Sw_ERzc4PRB',
+  jwt: null, uid: null,
+  estado: 'local'          // local | conectado
+};
+function sbHdr(extra){
+  return Object.assign({apikey: SB.key, 'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + (SB.jwt || SB.key)}, extra || {});
+}
+function jwtExp(t){
+  try { return JSON.parse(atob(t.split('.')[1])).exp; } catch(e){ return null; }
+}
+async function sbConectar(){
+  try{
+    const guard = JSON.parse(localStorage.getItem('cinex-nube') || 'null');
+    if(guard && guard.jwt && guard.exp > Date.now()/1000){
+      SB.jwt = guard.jwt; SB.uid = guard.uid; SB.estado = 'conectado'; return true;
+    }
+    const r = await fetch(SB.url + '/auth/v1/signup', {
+      method:'POST',
+      headers:{apikey: SB.key, Authorization: 'Bearer ' + SB.key,
+               'Content-Type':'application/json'},
+      body: '{}'
+    });
+    if(!r.ok){ SB.estado = 'local'; return false; }      // anónimos apagados -> modo local
+    const j = await r.json();
+    SB.jwt = j.access_token;
+    SB.uid = j.user && j.user.id;
+    SB.estado = 'conectado';
+    localStorage.setItem('cinex-nube', JSON.stringify({
+      jwt: SB.jwt, uid: SB.uid, exp: jwtExp(SB.jwt) || Math.floor(Date.now()/1000) + 3600
+    }));
+    return true;
+  }catch(e){ SB.estado = 'local'; return false; }
+}
+async function sbCargar(){
+  if(SB.estado !== 'conectado') return null;
+  try{
+    const r = await fetch(SB.url + '/rest/v1/estado?id=eq.1&select=data,actualizado',
+      {headers: sbHdr()});
+    if(!r.ok) return null;
+    const arr = await r.json();
+    if(!arr.length || !arr[0].data || !Object.keys(arr[0].data).length) return null;
+    return arr[0];
+  }catch(e){ return null; }
+}
+function fusionarRemoto(rem){
+  const remTs = Date.parse(rem.actualizado || 0) || 0;
+  const locTs = S._sync || 0;
+  if(remTs <= locTs) return false;                     // lo local está más al día
+  const r = rem.data || {};
+  // eventos: unión (nada se pierde)
+  const vistos = new Set((S.mov||[]).map(m=> m.ts+'|'+m.id+'|'+m.de+'|'+m.a));
+  (r.mov||[]).forEach(m=>{
+    const k = m.ts+'|'+m.id+'|'+m.de+'|'+m.a;
+    if(!vistos.has(k)){ S.mov.push(m); vistos.add(k); }
+  });
+  S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
+  // el resto del estado: lo más reciente manda
+  // el perfil NO viaja desde la nube: cada dispositivo pide su clave
+  Object.keys(r).forEach(k=>{ if(k!=='mov' && k!=='perfil') S[k] = r[k]; });
+  S._sync = remTs;
+  return true;
+}
+let sbTimer = null;
+function sbProgramar(){
+  if(SB.estado !== 'conectado') return;
+  clearTimeout(sbTimer);
+  sbTimer = setTimeout(sbSubir, 1200);
+}
+async function sbSubir(){
+  if(SB.estado !== 'conectado') return;
+  try{
+    const iso = new Date().toISOString();
+    const copia = JSON.parse(JSON.stringify(S));
+    copia._sync = Date.parse(iso);
+    const r = await fetch(SB.url + '/rest/v1/estado?id=eq.1', {
+      method: 'PATCH', headers: sbHdr({'Prefer':'return=minimal'}),
+      body: JSON.stringify({data: copia, actualizado: iso,
+        actualizado_por: (S.perfil && S.perfil.nombre) || 'sin perfil'})
+    });
+    if(r.ok) S._sync = Date.parse(iso);
+  }catch(e){ /* sin red: se reintenta en el próximo guardado */ }
+}
+function pintarNube(){
+  const el = document.getElementById('subtop');
+  if(!el) return;
+  const base = 'Operatividad de equipos · ' + DATA.cines.length + ' cines · base ' + DATA.gen;
+  el.textContent = SB.estado==='conectado'
+    ? base + ' · ☁ nube conectada'
+    : base + ' · 💾 solo en este dispositivo';
+}
+
 /* ================= DIÁLOGO INTERNO (reemplaza prompt/confirm) ================= */
 let gOp = null, gResolver = null;
 function pedir(op){
@@ -1847,6 +1943,15 @@ function exportarPlan(){
   bajar('plan-trabajo-cinex-'+hoy()+'.csv', filas);
 }
 
+pintarNube();
+(async ()=>{
+  if(await sbConectar()){
+    const rem = await sbCargar();
+    if(rem && fusionarRemoto(rem)){ save(); }
+  }
+  pintarNube();
+  if(S.perfil) render();
+})();
 if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
