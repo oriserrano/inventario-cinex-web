@@ -1060,8 +1060,41 @@ function nuevaAccion(o){
     tipo:'comprar', monto:'', estado:'pendiente',
     autor:AUTOR(), ts:new Date().toISOString()}, o));
 }
+/* Repara claves rotas y quita acciones duplicadas (mismo equipo·puesto·componente). */
+function repararAcc(){
+  if(!Array.isArray(S.acc) || !S.acc.length) return 0;
+  const porRef = {};
+  DATA.cines.forEach(c=> c.ar.forEach(area=> vivos(area.v).forEach(it=>{
+    if(!it.id) return;
+    porRef[[c.c, area.a, it.n||'', String(it.p||'')].join('\u00a7')] = it;
+  })));
+  const vistas = {}, muertos = [];
+  const orden = ['pendiente','cotizado','aprobado','comprado','ejecutado'];
+  S.acc.forEach(a=>{
+    if(!a.key || a.key.indexOf('undefined')===0){
+      const it = porRef[[a.cine, a.area, a.eq||'', String(a.puesto||'')].join('\u00a7')];
+      if(it){
+        const i = (it.c||[]).findIndex(z=> z.n===a.comp);
+        a.key = i>=0? (it.id+'|'+i) : (it.id+'|'+a.comp);
+      }
+    }
+    const k = [a.cine, a.area, String(a.puesto||''), a.eq||'', a.comp].join('\u00a7');
+    const queQueda = vistas[k];
+    if(queQueda){
+      if((queQueda.monto===''||queQueda.monto===undefined) && a.monto!=='' && a.monto!==undefined)
+        queQueda.monto = a.monto;
+      if(!queQueda.nota && a.nota) queQueda.nota = a.nota;
+      if(orden.indexOf(queQueda.estado) < orden.indexOf(a.estado)) queQueda.estado = a.estado;
+      muertos.push(a);
+    } else vistas[k] = a;
+  });
+  if(muertos.length) S.acc = S.acc.filter(a=> muertos.indexOf(a)<0);
+  return muertos.length;
+}
+
 function sincronizarPlan(){
-  let n = 0;
+  const quitados = repararAcc();
+  let n = quitados;      // si solo se deduplicó, hay que guardar igual
   // montos vacíos se completan con el catálogo (los escritos a mano no se tocan)
   S.acc.forEach(a=>{
     if(a.comp && a.comp.indexOf('Estación completa (puesto')===0){
@@ -1153,6 +1186,7 @@ function exportarResumen(){
 function queHacer(){
   const nuevas = sincronizarPlan();
   if(nuevas) save();
+  else if(!Array.isArray(S.acc)) S.acc = [];
   const F = vista.planF, C = vista.planC, G = vista.planG || 'tipo';
   const cines = DATA.cines.map(c=>`<option value="${c.c}" ${C===c.c?'selected':''}>${c.n}</option>`).join('');
   const suma = arr => arr.reduce((s,a)=> s+(Number(a.monto)||0), 0);
