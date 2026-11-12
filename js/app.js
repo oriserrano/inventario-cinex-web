@@ -1048,6 +1048,11 @@ function sincronizarPlan(){
   let n = 0;
   // montos vacíos se completan con el catálogo (los escritos a mano no se tocan)
   S.acc.forEach(a=>{
+    if(a.comp && a.comp.indexOf('Estación completa (puesto')===0){
+      // unificar: el puesto vive en a.puesto, no en el nombre del componente
+      if(!a.puesto){ const m = a.comp.match(/puesto\s*(\d+)/i); if(m) a.puesto = Number(m[1]); }
+      a.comp = 'Estación completa';
+    }
     if(a.monto==='' || a.monto===null || a.monto===undefined){
       const p = precioDe(a.comp);
       if(p!=='' && p!==undefined) a.monto = p;
@@ -1067,7 +1072,7 @@ function sincronizarPlan(){
         const est = ests[0];
         let a = S.acc.find(x=>x.key===key);
         if(!a && est!=='ok'){
-          nuevaAccion(Object.assign({}, base, {key, comp:'Estación completa (puesto '+it.p+')',
+          nuevaAccion(Object.assign({}, base, {key, comp:'Estación completa',
             tipo:'comprar', monto: precioDe('Estación completa'), cant:1}));
           n++;
         } else cerrar(a, est);
@@ -1132,34 +1137,63 @@ function exportarResumen(){
 function queHacer(){
   const nuevas = sincronizarPlan();
   if(nuevas) save();
-  const F = vista.planF, C = vista.planC;
-  const lista = S.acc.filter(a=> (F==='todo'||a.tipo===F) && (C==='todos'||a.cine===C));
+  const F = vista.planF, C = vista.planC, G = vista.planG || 'tipo';
+  const cines = DATA.cines.map(c=>`<option value="${c.c}" ${C===c.c?'selected':''}>${c.n}</option>`).join('');
   const suma = arr => arr.reduce((s,a)=> s+(Number(a.monto)||0), 0);
   const total = suma(S.acc);
-  const porCineMap = {};
-  S.acc.forEach(a=>{ porCineMap[a.cine]=(porCineMap[a.cine]||0)+(Number(a.monto)||0); });
-  const porCine = Object.entries(porCineMap).map(([k,v])=>({k,v})).sort((a,b)=>b.v-a.v);
   const colores = {pendiente:'#9aa7b2', cotizado:'#e0a100', aprobado:'#7b4fd6',
                    comprado:'#0b5cad', ejecutado:'#1f9d55'};
   const porEstado = EST_PLAN.map(([k,t])=>({k, t,
     n:S.acc.filter(a=>a.estado===k).length, v: suma(S.acc.filter(a=>a.estado===k))}));
   const stkMax = Math.max(1, total);
-  const cines = DATA.cines.map(c=>`<option value="${c.c}" ${C===c.c?'selected':''}>${c.n}</option>`).join('');
 
-  const resumen = agruparPlan(C);
+  /* ---------- A) RESUMEN POR COMPONENTE: una fila, sin repetir ---------- */
+  const porComp = {};
+  S.acc.filter(a=> C==='todos' || a.cine===C).forEach(a=>{
+    const g = porComp[a.comp] || (porComp[a.comp] =
+      {comp:a.comp, comprar:0, reparar:0, revisar:0, monto:0, precio:precioDe(a.comp)});
+    const cant = Number(a.cant)||1;
+    if(a.tipo==='comprar') g.comprar += cant;
+    else if(a.tipo==='reparar') g.reparar += cant;
+    else g.revisar += cant;
+    g.monto += Number(a.monto)||0;
+  });
+  const resumen = Object.values(porComp)
+    .sort((a,b)=> (b.monto-a.monto) || ((b.comprar+b.reparar)-(a.comprar+a.reparar)));
+  const totComprar = resumen.reduce((s,g)=> s+g.comprar, 0);
+  const totReparar = resumen.reduce((s,g)=> s+g.reparar, 0);
+  const totMonto   = resumen.reduce((s,g)=> s+g.monto, 0);
 
-  const filas = lista.map(a=>{
+  /* ---------- B) POR CINE ---------- */
+  const porCineMap = {};
+  S.acc.forEach(a=>{
+    const g = porCineMap[a.cine] || (porCineMap[a.cine] = {cine:a.cine, comprar:0, reparar:0, monto:0});
+    if(a.tipo==='comprar') g.comprar += Number(a.cant)||1;
+    else if(a.tipo==='reparar') g.reparar += Number(a.cant)||1;
+    g.monto += Number(a.monto)||0;
+  });
+  const porCineFilas = Object.values(porCineMap).sort((a,b)=> b.monto-a.monto);
+
+  /* ---------- C) ACCIONES AGRUPADAS (acordeón, sin scroll infinito) ---------- */
+  const lista = S.acc.filter(a=> (F==='todo'||a.tipo===F) && (C==='todos'||a.cine===C));
+  const clave = a => G==='tipo'
+    ? (ETIQ[a.comp]||a.comp)
+    : (a.cine + ' · ' + (a.eq || a.area || '—'));
+  const grupos = {};
+  lista.forEach(a=>{ const k = clave(a); (grupos[k] = grupos[k]||[]).push(a); });
+  const orden = Object.keys(grupos).sort((x,y)=> grupos[y].length-grupos[x].length);
+
+  const fila = a=>{
     const idx = S.acc.indexOf(a);
     return `<div class="acc">
       <div class="ah">
-        <span class="badge ${a.tipo==='reparar'?'mal':'rev'}">${a.tipo==='reparar'?'REPARAR':(a.tipo==='comprar'?'COMPRAR':'REVISAR')}</span>
-        <span class="at">${a.comp} ${a.eq? '· '+a.eq : ''}</span>
-        <button data-accdel="${idx}">×</button>
+        <span class="badge ${a.tipo==='reparar'?'mal':'rev'}">${
+          a.tipo==='reparar'?'REPARAR':(a.tipo==='comprar'?'COMPRAR':'REVISAR')}</span>
+        <span class="at">${a.eq? a.eq+' · ':''}${a.cine} · ${a.area}${
+          a.puesto? ' · puesto '+a.puesto:''}</span>
+        <button data-accdel="${idx}" title="Quitar acción">×</button>
       </div>
-      <div class="ad">${a.cine} · ${a.area}${a.puesto? ' · puesto '+a.puesto:''} ·
-        cargado por ${a.autor} ${a.ts? a.ts.slice(0,10):''}</div>
-      ${a.nota? `<div class="ad" style="color:#7a5b00">Causa: ${a.nota}</div>`:''}
-      <input class="obs" type="text" placeholder="Observación / motivo (ej. tactil dañado en20 pantallas)"
+      <input class="obs" type="text" placeholder="Observación / motivo"
         value="${(a.nota||'').replace(/"/g,'&quot;')}" data-accobs="${idx}">
       <div class="af">
         <select data-acc="${idx}" data-campo="tipo">
@@ -1172,16 +1206,28 @@ function queHacer(){
         <select data-acc="${idx}" data-campo="estado">
           ${EST_PLAN.map(([k,t])=>`<option value="${k}" ${a.estado===k?'selected':''}>${t}</option>`).join('')}
         </select>
-        <input class="monto" type="number" inputmode="decimal" placeholder="US$ estimado"
+        <input class="monto" type="number" inputmode="decimal" placeholder="US$"
           value="${a.monto===''?'':a.monto}" data-accm="${idx}">
       </div>
     </div>`;
-  }).join('');
+  };
+
+  const acordeon = orden.length? orden.map(k=>{
+    const filas = grupos[k];
+    const monto = suma(filas);
+    const abierto = vista.planAbierto==='*' || vista.planAbierto===k;
+    return `<details class="grupo" ${abierto?'open':''}>
+      <summary data-gk="${k.replace(/"/g,'&quot;')}">
+        <span class="gk">${k}</span>
+        <span class="gnum">${filas.length} ${filas.length===1?'acción':'acciones'}</span>
+        <span class="gmonto">${fmt(monto)}</span>
+        <span class="gcar" aria-hidden="true">▾</span>
+      </summary>
+      <div class="gbd">${filas.map(fila).join('')}</div>
+    </details>`;
+  }).join('') : '<div class="empty-note">Sin acciones para este filtro.</div>';
 
   return `
-  <div class="banner">Plan de trabajo generado de lo que está <b>dañado, en reparación o falta</b>.
-    Ajusta el monto estimado y el estado; cada cambio queda a tu nombre.</div>
-
   <div class="kpi">
     <div><b>${fmt(total)}</b><span>Total estimado</span></div>
     <div><b>${fmt(suma(S.acc.filter(a=>a.estado==='pendiente')))}</b><span>Pendiente</span></div>
@@ -1189,29 +1235,71 @@ function queHacer(){
     <div><b>${S.acc.length}</b><span>Acciones</span></div>
   </div>
 
-  <div class="card secc"><div class="hd"><h2>Resumen por cantidad</h2>
-    <span style="font-size:12px;color:var(--mut)">${resumen.length} partidas</span>
+  <div class="card secc"><div class="hd"><h2>Faltan, por componente</h2>
+    <span class="ad">una fila por equipo · ${C==='todos'?'todos los cines':C}</span>
     <button id="exp-resumen">⬇ Excel</button></div>
     <div class="bd">
-      <div class="res">
-        <div class="rh"><span>Acción · componente</span><span>Cant</span><span>P. unit</span><span>Subtotal</span></div>
-        ${resumen.length? resumen.map(g=>`<div class="rr">
-          <span><b>${g.tipo==='comprar'?'Comprar':(g.tipo==='reparar'?'Reparar':'Revisar')}</b> · ${g.comp}
-            ${g.obs.length? `<span class="ad">${g.obs.join(' · ')}</span>`:''}</span>
-          <span class="num">${g.cant}</span>
-          <span class="num">${precioDe(g.comp)===''? '—' : fmt(precioDe(g.comp))}</span>
-          <span class="num tot">${fmt(g.monto)}</span>
-        </div>`).join('') : '<div class="empty-note">Sin partidas todavía.</div>'}
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Componente</th><th class="num">A comprar</th><th class="num">A reparar</th>
+          <th class="num">Precio c/u</th><th class="num">Subtotal</th></tr></thead>
+        <tbody>${resumen.map(g=>`<tr>
+          <td><b>${g.comp}</b></td>
+          <td class="num">${g.comprar||'—'}</td>
+          <td class="num">${g.reparar||'—'}</td>
+          <td class="num">${g.precio===''||g.precio===undefined? '—' : fmt(g.precio)}</td>
+          <td class="num"><b>${fmt(g.monto)}</b></td></tr>`).join('')}</tbody>
+        <tfoot><tr><td><b>Total</b></td><td class="num"><b>${totComprar}</b></td>
+          <td class="num"><b>${totReparar}</b></td><td class="num"></td>
+          <td class="num"><b>${fmt(totMonto)}</b></td></tr></tfoot>
+      </table></div>
+    </div></div>
+
+  <div class="card secc"><div class="hd"><h2>Faltan, por cine</h2>
+    <span class="ad">clic en un cine para filtrar</span></div>
+    <div class="bd">
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Cine</th><th class="num">A comprar</th><th class="num">A reparar</th>
+          <th class="num">Subtotal</th><th></th></tr></thead>
+        <tbody>${porCineFilas.map(g=>`<tr>
+          <td><b>${g.cine}</b></td>
+          <td class="num">${g.comprar||'—'}</td>
+          <td class="num">${g.reparar||'—'}</td>
+          <td class="num"><b>${fmt(g.monto)}</b></td>
+          <td class="num"><button data-pc-set="${g.cine}">Filtrar</button></td></tr>`).join('')}</tbody>
+      </table></div>
+    </div></div>
+
+  <div class="card secc"><div class="hd"><h2>Acciones (${lista.length})</h2>
+    <button id="exp-plan">⬇ Excel</button></div>
+    <div class="bd">
+      <div class="filters" style="margin-bottom:10px">
+        <button data-pg="tipo" class="${G==='tipo'?'on':''}">Por tipo de equipo</button>
+        <button data-pg="cine" class="${G==='cine'?'on':''}">Por cine + equipo</button>
+        <span style="flex:1"></span>
+        <button data-pg-abrir="todo">Abrir todo</button>
+        <button data-pg-abrir="nada">Cerrar</button>
       </div>
-      <div class="ad" style="margin-top:8px">Total: <b>${fmt(resumen.reduce((s,g)=>s+g.monto,0))}</b>
-        · ${resumen.reduce((s,g)=>s+g.cant,0)} unidades</div>
+      <div class="filters" style="margin-bottom:10px">
+        <button data-pf="todo" class="${F==='todo'?'on':''}">Todas</button>
+        <button data-pf="reparar" class="${F==='reparar'?'on':''}">Reparar</button>
+        <button data-pf="comprar" class="${F==='comprar'?'on':''}">Comprar</button>
+        <select data-pc style="min-height:44px;padding:10px 12px">
+          <option value="todos" ${C==='todos'?'selected':''}>Todos los cines</option>
+          ${cines}
+        </select>
+      </div>
+      ${acordeon}
+      <div class="rowbtn" style="margin-top:10px">
+        <button id="acc-add">+ Acción manual</button>
+      </div>
     </div></div>
 
   <div class="charts">
     <div class="card secc"><div class="hd"><h2>Inversión por cine</h2></div>
-      <div class="bd">${barrasHTML(porCine)}</div></div>
+      <div class="bd">${barrasHTML(Object.entries(porCineMap)
+        .map(([k,v])=>({k, v:v.monto})).sort((a,b)=>b.v-a.v))}</div></div>
     <div class="card secc"><div class="hd"><h2>Avance del plan</h2>
-      <span style="font-size:12px;color:var(--mut)">Total ${fmt(total)}</span></div><div class="bd">
+      <span class="ad">Total ${fmt(total)}</span></div><div class="bd">
       <div class="stk">${porEstado.map(e=>
         `<i style="width:${(e.v/stkMax*100).toFixed(1)}%;background:${colores[e.k]}"></i>`).join('')}</div>
       <div class="bars">${porEstado.map(e=>`<div class="barrow">
@@ -1221,11 +1309,13 @@ function queHacer(){
     </div></div>
   </div>
 
-  <div class="card secc"><div class="hd"><h2>Precios de referencia</h2>
-    <button data-rellenar>Rellenar montos vacíos</button></div>
-    <div class="bd">
-      <div class="ad" style="margin-bottom:9px">Se aplican al crear cada acción: cambia el precio
-        una vez y no lo vuelves a escribir.</div>
+  <details class="grupo precios"><summary data-gk="__precios">
+    <span class="gk">Precios de referencia</span>
+    <span class="gnum">${CATALOGO.length} equipos</span>
+    <span class="gmonto">${fmt(suma(S.acc.filter(a=>C==='todos'||a.cine===C)))}</span>
+    <span class="gcar">▾</span></summary>
+    <div class="gbd">
+    <div class="rowbtn" style="margin-top:0"><button data-rellenar>Rellenar montos vacíos</button></div>
       <div class="carga-masiva">
         <div class="sb">Carga masiva — pega aquí (desde Excel: copia las columnas nombre y precio)</div>
         <textarea id="prec-masivo" rows="4" placeholder="Impresora fiscal	1017
@@ -1236,32 +1326,12 @@ Gaveta100"></textarea>
           <button class="btn-p" id="prec-aplicar">Aplicar precios</button>
           <button id="prec-limpiar">Limpiar</button>
         </div>
-        <div class="ad" style="margin-top:6px">Acepta <b>Tab</b> (pegado de Excel), <b> coma</b> o <b>=</b>.
-          Solo se modifican los nombres que reconozca; el resto se reporta.</div>
       </div>
       <div class="precgrid">${CATALOGO.map(n=>`
         <label class="prec"><span>${n}</span>
           <input type="number" inputmode="decimal" data-prec="${n}"
             value="${precioDe(n)===''?'':precioDe(n)}" placeholder="US$"></label>`).join('')}</div>
-    </div></div>
-
-  <div class="card secc"><div class="hd"><h2>Acciones (${lista.length})</h2>
-    <button id="exp-plan">⬇ Excel</button></div>
-    <div class="bd">
-      <div class="filters" style="margin-bottom:10px">
-        <button data-pf="todo" class="${F==='todo'?'on':''}">Todas</button>
-        <button data-pf="reparar" class="${F==='reparar'?'on':''}">Reparar</button>
-        <button data-pf="comprar" class="${F==='comprar'?'on':''}">Comprar</button>
-        <select data-pc style="min-height:44px;padding:10px 12px">
-          <option value="todos" ${C==='todos'?'selected':''}>Todos los cines</option>
-          ${cines}
-        </select>
-      </div>
-      ${filas || '<div class="empty-note">Sin acciones para este filtro.</div>'}
-      <div class="rowbtn" style="margin-top:10px">
-        <button id="acc-add">+ Acción manual</button>
-      </div>
-    </div></div>`;
+    </div></details>`;
 }
 
 /* ================= GESTIÓN (MÓDULOS) ================= */
@@ -1832,6 +1902,16 @@ document.addEventListener('click', async ev=>{
 
   const pf = t.closest('[data-pf]');
   if(pf){ vista.planF = pf.dataset.pf; render(); return; }
+
+  const pg = t.closest('[data-pg]');
+  if(pg){ vista.planG = pg.dataset.pg; render(); return; }
+  const pga = t.closest('[data-pg-abrir]');
+  if(pga){ vista.planAbierto = pga.dataset.pgAbrir==='todo'? '*' : null; render(); return; }
+  const pcs = t.closest('[data-pc-set]');
+  if(pcs){ vista.planC = pcs.dataset.pcSet; render(); return; }
+  // abrir/cerrar un grupo sin redibujar (se recuerda al volver a renderizar)
+  const sm = t.closest('summary[data-gk]');
+  if(sm){ vista.planAbierto = sm.parentElement.open? null : sm.dataset.gk; return; }
   const acdel = t.closest('[data-accdel]');
   if(acdel){
     S.acc.splice(+acdel.dataset.accdel,1); save(); render(); return;
