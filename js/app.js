@@ -99,6 +99,24 @@ function save(){
   sbProgramar();
 }
 
+/* Los componentes se editan sobre DATA (que no se guarda en save()), así que
+   la lista viva se replica en S.comps y se vuelve a aplicar en cada arranque. */
+function aplicarComps(){
+  if(!S.comps) S.comps = {};
+  const poner = it=>{
+    const o = S.comps[it.id];
+    if(!o) return;
+    it.c = o.map(c=>({n:c.n, e:c.e||'pend', v:c.v||''}));
+    if(it.c.length===0){ delete it.c; if(it.e===undefined) it.e='pend'; }
+  };
+  DATA.cines.forEach(c=> c.ar.forEach(a=> a.v.forEach(poner)));
+  DATA.cines.forEach(c=> (S.nuevos[c.c]||[]).forEach(poner));
+}
+function guardarComps(it){
+  if(!it || !it.id || !it.c) return;
+  S.comps = S.comps || {};
+  S.comps[it.id] = it.c.map(c=>({n:c.n, e:c.e||'pend', v:c.v||''}));
+}
 function ensureIds(){
   DATA.cines.forEach(c=>{
     c.ar.forEach(a=> a.v.forEach((it,ii)=>{
@@ -668,6 +686,7 @@ function quitarComponente(ci){
       na[pref+(i>ci? i-1:i)] = S.accionComp[k];
     });
     S.accionComp = na;
+    guardarComps(it);
     save(); pintarCompsEd(); render();
     flash(nombre+' quitado del equipo ✓');
   });
@@ -688,6 +707,7 @@ function agregarComponente(){
     S.est[it.id][it.c.length-1] = 'pend';
   }
   input.value = '';
+  guardarComps(it);
   save(); pintarCompsEd(); render();
   flash(nombre+' agregado ✓');
 }
@@ -2533,7 +2553,7 @@ pintarNube();
 (async ()=>{
   if(await sbConectar()){
     const rem = await sbCargar();
-    if(rem && fusionarRemoto(rem)){ sincronizarPlan(); save(); }
+    if(rem && fusionarRemoto(rem)){ aplicarComps(); ensureIds(); sincronizarPlan(); save(); }
   }
   pintarNube();
   if(S.perfil) render();
@@ -2541,6 +2561,7 @@ pintarNube();
 if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
+aplicarComps();
 ensureIds();
 sincronizarPlan();          // crea/completa el plan DESPUÉS de asignar ids
 document.getElementById('subtop').textContent =
