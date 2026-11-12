@@ -326,6 +326,8 @@ document.addEventListener('toggle', e=>{
 // visitas: el borrador vive en vista.vis para que render() no pierda lo escrito
 document.addEventListener('change', e=>{
   if(!vista.vis || !e.target.matches) return;
+  if(e.target.matches('[data-vcheck]')){
+    vista.vis.check[e.target.dataset.vcheck] = e.target.checked; render(); return; }
   if(e.target.matches('[data-vcine]')){ vista.vis.cine = e.target.value; vista.vis.areas = []; render(); }
   else if(e.target.matches('[data-vfecha]')){ vista.vis.fecha = e.target.value; }
 });
@@ -2405,9 +2407,6 @@ document.addEventListener('click', async ev=>{
   if(va && vista.vis){ const a = va.dataset.varea, i = vista.vis.areas.indexOf(a);
     if(i>=0) vista.vis.areas.splice(i,1); else vista.vis.areas.push(a);
     render(); return; }
-  const vc = t.closest('[data-vcheck]');
-  if(vc && vista.vis){ const k = vc.dataset.vcheck;
-    vista.vis.check[k] = !vista.vis.check[k]; render(); return; }
   const vf = t.closest('[data-vfil]');
   if(vf){ vista.visFil = vf.dataset.vfil; render(); return; }
   if(t.id==='vis-guardar'){ guardarVisita(); return; }
