@@ -942,7 +942,7 @@ function movsDe(id, ci){
       if(m.id && m.id!==id) return false;
       if(m.cine!==d.c.c || m.area!==d.area) return false;
       if(m.eq && m.eq!==nombreDe(it)) return false;
-      if(ch && m.comp && m.comp!==compNombre) return false;
+      if(ch && m.comp && m.comp!==compNombre && m.comp!==ch.n) return false;
       return true;
     }).sort((a,b)=> String(b.ts||'').localeCompare(String(a.ts||'')));
 }
@@ -1983,7 +1983,7 @@ function fichaHTML(id, idx){
   const esSimple = (idx==='e' || !it.c);
   const ch = (!esSimple && it.c[idx]) ? it.c[idx] : null;
   const modEq = modeloDe(it) || '';
-  const modCh = ch? (S.cmod[id+'|'+idx] || (ch.v && !esVacio(ch.v)? ch.v : '')) : '';
+  const modCh = ch? valorComp(it, idx, ch) : '';
   const nota = S.notas[id] || '';
   const obs = it.o || '';
   const movs = movsDe(id, esSimple? undefined : idx);
