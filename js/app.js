@@ -66,6 +66,7 @@ S.causas = Array.isArray(S.causas)? S.causas : [];
 S.accionComp = S.accionComp || {};
 S.precios = S.precios || {};
 S.claves = S.claves || {};
+S.obs = S.obs || {};
 S.usuarios = S.usuarios || null;
 S.mov = Array.isArray(S.mov)? S.mov : [];
 const BASE = {};
@@ -370,6 +371,11 @@ function render(){
   });
   const bp = document.getElementById('btn-perfil');
   if(bp) bp.textContent = S.perfil ? AUTOR().split(' ')[0] : 'Perfil';
+  // si la ventana de estado está abierta, repintar su ficha con los cambios recientes
+  if(typeof mPend!=='undefined' && mPend){
+    const mf = document.getElementById('m-ficha');
+    if(mf) mf.innerHTML = fichaHTML(mPend.id, mPend.idx);
+  }
   const destino = scrollObj===null ? y : scrollObj;
   scrollObj = null;
   window.scrollTo(0, destino);
@@ -1976,6 +1982,16 @@ function actualizarFalloModal(){
     `${it? it.n:''} · ${etiquetaComp(mPend.id, mPend.idx)} · actual: ${
       LABEL[mPend.viejo]} → ${LABEL[mPend.nuevo]}`;
 }
+/* Acción de plan vinculada a un equipo/componente (misma lógica que usaba la ficha) */
+function accDe(id, idx){
+  const it = findItem(id); if(!it) return null;
+  const d = dondeEsta(id);
+  const esSimple = (idx==='e' || !it.c);
+  const ch = (!esSimple && it.c[idx]) ? it.c[idx] : null;
+  return (S.acc||[]).find(a=> a.key===id+'|'+idx) ||
+    (d && (S.acc||[]).find(a=> a.cine===d.c.c && a.area===d.area &&
+      a.eq===nombreDe(it) && (!ch || a.comp===(ETIQ[ch.n]||ch.n)))) || null;
+}
 /* Ficha del equipo dentro de la ventana de estado: todo lo que se sabe de él */
 function fichaHTML(id, idx){
   const it = findItem(id); if(!it) return '';
@@ -1985,30 +2001,41 @@ function fichaHTML(id, idx){
   const modEq = modeloDe(it) || '';
   const modCh = ch? valorComp(it, idx, ch) : '';
   const nota = S.notas[id] || '';
-  const obs = it.o || '';
+  const obs = (S.obs && Object.prototype.hasOwnProperty.call(S.obs, id))
+    ? S.obs[id] : (it.o || '');
   const movs = movsDe(id, esSimple? undefined : idx);
-  const acc = (S.acc||[]).find(a=> a.key===id+'|'+idx) ||
-              (d && (S.acc||[]).find(a=> a.cine===d.c.c && a.area===d.area &&
-                a.eq===nombreDe(it) && (!ch || a.comp===(ETIQ[ch.n]||ch.n))));
+  const acc = accDe(id, idx);
   const etapa = acc && EST_PLAN.find(x=>x[0]===acc.estado);
-  const fila = (k, v, cls)=> v? `<div class="frow2"><span>${k}</span><b class="${cls||''}">${v}</b></div>` : '';
+  const ed = attr=> `<button class="fed" ${attr} title="Editar">✎</button>`;
+  const fila = (k, v, cls, btn)=>
+    (v||btn)? `<div class="frow2"><span>${k}</span><b class="${cls||''}">${v||'—'}</b>${btn||''}</div>` : '';
   const movsHtml = movs.slice(0,3).map(m=>
     `<div class="fmov"><b>${fechaCorta(m.ts)} ${String(m.ts||'').slice(11,16)}</b>
       <span>${m.de||'—'} → <b>${m.a||'—'}</b></span>
       ${m.causa? `<span class="fcau">${m.causa}</span>`:''}
       <span class="ad">${m.autor||''}</span></div>`).join('');
-  return [
-    fila('Equipo', `${nombreDe(it)}${puestoDe(it)? ' · puesto '+puestoDe(it):''}`),
-    fila('Ubicación', d? `${d.area} · ${d.c.n}` : ''),
-    fila('Modelo', [modEq? 'equipo: '+modEq:'', modCh? 'componente: '+modCh:'']
-        .filter(Boolean).join(' · ')),
-    fila('Nota', nota.replace(/</g,'&lt;')),
-    fila('Observación inv.', obs? String(obs).replace(/</g,'&lt;').slice(0,260):''),
-    acc? `<div class="frow2"><span>Plan</span><b>${
-        acc.tipo==='reparar'?'REPARAR':'COMPRAR'} ${acc.cant||1} · ${
+  const obsTxt = obs? String(obs).replace(/</g,'&lt;') : '';
+  const obsVis = obsTxt.length>260? obsTxt.slice(0,260)+'…' : obsTxt;
+  const TIPO_TXT = {reparar:'REPARAR', comprar:'COMPRAR', revisar:'REVISAR'};
+  const planRow = acc
+    ? `<div class="frow2"><span>Plan</span><b>${TIPO_TXT[acc.tipo]||'REPARAR'} ${acc.cant||1} · ${
         etapa? etapa[1]:acc.estado} · ${
         (acc.monto!==''&&acc.monto!==undefined)? fmt(acc.monto):'sin precio'}${
-        acc.nota? ' · '+String(acc.nota).replace(/</g,'&lt;'):''}</b></div>` : '',
+        acc.nota? ' · '+String(acc.nota).replace(/</g,'&lt;'):''}</b>${
+        ed(`data-fplan="${id}|${idx}"`)}</div>`
+    : TIPO_EST[estadoActualDe(id, idx)]
+      ? `<div class="frow2"><span>Plan</span><b class="ad">Sin acción en el plan</b><button class="fed"
+          data-fplannew="${id}|${idx}" title="Agregar al plan">＋</button></div>`
+      : '';
+  return [
+    fila('Equipo', `${nombreDe(it)}${puestoDe(it)? ' · puesto '+puestoDe(it):''}`,
+        '', ed(`data-fed="${id}"`)),
+    fila('Ubicación', d? `${d.area} · ${d.c.n}` : ''),
+    fila('Modelo', [modEq? 'equipo: '+modEq:'', modCh? 'componente: '+modCh:'']
+        .filter(Boolean).join(' · '), '', ed(`data-mod="${id}"`)),
+    fila('Nota', nota.replace(/</g,'&lt;'), '', ed(`data-note="${id}"`)),
+    fila('Observación inv.', obsVis, '', ed(`data-fobs="${id}"`)),
+    planRow,
     movsHtml? `<div class="fhist"><span class="fh-t">Últimos cambios</span>${movsHtml}</div>` : ''
   ].join('');
 }
@@ -2176,6 +2203,11 @@ function pedir(op){
             `<option value="${String(o[0]).replace(/"/g,'&quot;')}"${
               String(o[0])===val? ' selected':''}>${o[1]}</option>`).join('')}</select></label>`;
       }
+      if(c.type==='textarea'){
+        return `<label class="fld" for="${id}"><span>${c.label}</span>
+          <textarea id="${id}" name="${id}" rows="${c.rows||5}"
+            placeholder="${c.placeholder||''}">${val}</textarea></label>`;
+      }
       return `<label class="fld" for="${id}"><span>${c.label}</span>
         <input type="${c.type||'text'}" id="${id}" name="${id}" value="${val}"
           placeholder="${c.placeholder||''}" ${c.inputmode? `inputmode="${c.inputmode}"`:''}
@@ -2187,7 +2219,7 @@ function pedir(op){
     document.getElementById('btn-g-ok').textContent = op.ok || 'Guardar';
     m.classList.add('on');
     setTimeout(()=>{
-      const f = document.querySelector('#g-campos input, #g-campos select')
+      const f = document.querySelector('#g-campos input, #g-campos select, #g-campos textarea')
         || document.getElementById('btn-g-ok');
       if(f) f.focus();
     }, 60);
@@ -2201,7 +2233,7 @@ function cerrarGen(valor){
 }
 function valoresGen(){
   const o = {};
-  document.querySelectorAll('#g-campos input, #g-campos select').forEach(i=>{
+  document.querySelectorAll('#g-campos input, #g-campos select, #g-campos textarea').forEach(i=>{
     o[i.id.replace(/^g-/,'')] = i.value;
   });
   return o;
@@ -2209,7 +2241,7 @@ function valoresGen(){
 function errorGen(msg){
   const e = document.getElementById('g-err');
   e.textContent = msg; e.hidden = false;
-  const f = document.querySelector('#g-campos input');
+  const f = document.querySelector('#g-campos input, #g-campos textarea');
   if(f) f.focus();
 }
 function rolDe(nombre){
@@ -2331,7 +2363,11 @@ document.addEventListener('keydown', ev=>{
     if(actual && actual.id==='acc-clave'){ ev.preventDefault(); entrarAcceso(); }
     return;
   }
-  if(ev.key==='Escape'){ cerrarEquipo(); cerrarEdicion(); cerrarModal(); }
+  if(ev.key==='Escape'){
+    const g = document.getElementById('modal-gen');
+    if(g && g.classList.contains('on')) cerrarGen(null);
+    else { cerrarEquipo(); cerrarEdicion(); cerrarModal(); }
+  }
 });
 
 document.addEventListener('click', async ev=>{
@@ -2378,7 +2414,7 @@ document.addEventListener('click', async ev=>{
     return;
   }
 
-  const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],#btn-area');
+  const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],#btn-area,[data-fed],[data-fobs],[data-fplan],[data-fplannew]');
   if(editando && !puedeEditar()){ flash('Módulo Gerencia: solo lectura'); return; }
 
   const pf = t.closest('[data-pf]');
@@ -2794,6 +2830,94 @@ document.addEventListener('click', async ev=>{
     }
     return;
   }
+
+  // ---------- edición desde la ficha de la ventana de estado ----------
+  const fed = t.closest('[data-fed]');
+  if(fed){
+    const id = fed.dataset.fed;
+    cerrarModal();
+    abrirEdicion(id);
+    return;
+  }
+
+  const fobs = t.closest('[data-fobs]');
+  if(fobs){
+    const id = fobs.dataset.fobs;
+    const ito = findItem(id);
+    if(!ito) return;
+    const orig = (S.obs && Object.prototype.hasOwnProperty.call(S.obs, id))
+      ? S.obs[id] : (ito.o || '');
+    const ro = await pedir({titulo:'Observación del inventario',
+      sub: `${nombreDe(ito)} · texto de la hoja / Ops`,
+      campos:[{id:'v', type:'textarea', rows:7, label:'Observación inv.',
+               value: orig, placeholder:'Lo que traiga la hoja u Ops…'}],
+      ok:'Guardar observación'});
+    if(ro){
+      S.obs = S.obs || {};
+      const v = String(ro.v||'');
+      if(v.trim() === String(orig).trim()) delete S.obs[id];   // sin cambios: no guardamos copia
+      else S.obs[id] = v;
+      save(); render();
+      flash('Observación guardada ✓');
+    }
+    return;
+  }
+
+  const fplan = t.closest('[data-fplan]');
+  if(fplan){
+    const raw = fplan.dataset.fplan, k = raw.lastIndexOf('|');
+    const id = raw.slice(0,k), ix = raw.slice(k+1);
+    const idx = ix==='e'? 'e' : +ix;
+    const itp = findItem(id); if(!itp) return;
+    const ap = accDe(id, idx);
+    if(!ap){ flash('Esta acción todavía no está en el plan'); return; }
+    const rp = await pedir({titulo:'Acción del plan',
+      sub: `${nombreDe(itp)} · ${etiquetaComp(id, idx)}`,
+      campos:[
+        {id:'tipo', type:'select', label:'Acción', value: ap.tipo||'reparar',
+         opciones:[['reparar','Reparar'],['comprar','Comprar'],['revisar','Revisar']]},
+        {id:'cant', type:'number', label:'Cantidad', value: ap.cant||1, inputmode:'numeric'},
+        {id:'estado', type:'select', label:'Estado', value: ap.estado||'pendiente',
+         opciones: EST_PLAN},
+        {id:'monto', type:'number', label:'Monto (US$)', inputmode:'decimal',
+         value: (ap.monto===''||ap.monto==null)? '' : ap.monto},
+        {id:'nota', label:'Observación / motivo', value: ap.nota||'',
+         placeholder:'Ej. repuesto en espera'}
+      ],
+      ok:'Guardar plan'});
+    if(rp){
+      ap.tipo = ['reparar','comprar','revisar'].includes(rp.tipo)? rp.tipo : ap.tipo;
+      ap.cant = Math.max(1, Number(rp.cant)||1);
+      ap.estado = EST_PLAN.some(e=>e[0]===rp.estado)? rp.estado : (ap.estado||'pendiente');
+      ap.monto = (rp.monto===''||rp.monto==null)? ''
+        : (Number(String(rp.monto).replace(/[^\d.]/g,''))||0);
+      ap.nota = String(rp.nota||'').trim();
+      ap.autor = AUTOR(); ap.ts = new Date().toISOString();
+      save(); render();
+      flash('Plan actualizado ✓');
+    }
+    return;
+  }
+
+  const fpn = t.closest('[data-fplannew]');
+  if(fpn){
+    const raw = fpn.dataset.fplannew, k = raw.lastIndexOf('|');
+    const id = raw.slice(0,k), ix = raw.slice(k+1);
+    const idx = ix==='e'? 'e' : +ix;
+    const itp = findItem(id); if(!itp) return;
+    const p = partes(id); if(!p) return;
+    // equipos nuevos (id sin tubos): el cine real sale de dondeEsta
+    const dd = id.indexOf('|')<0 ? dondeEsta(id) : null;
+    const cine = dd? dd.c.c : p.cine, area = dd? dd.area : p.area;
+    const comp = etiquetaComp(id, idx);
+    S.acc.push({key: id+'|'+idx, cine: cine, area: area, eq: itp.n, comp: comp,
+      puesto: (itp.p||''), tipo: TIPO_EST[estadoActualDe(id, idx)] || 'reparar',
+      monto: precioDe(comp), cant: 1, estado:'pendiente', nota:'',
+      autor: AUTOR(), ts: new Date().toISOString()});
+    save(); render();
+    flash('Agregada al plan ✓');
+    return;
+  }
   const ok = t.closest('[data-ok]');
   if(ok){
     const id = ok.dataset.ok;
@@ -2938,7 +3062,9 @@ function exportar(cines){
     const areas = c.ar.map(a=>({nombre:a.a, items:a.v.concat(nuevos[a.a]||[])}));
     Object.keys(nuevos).forEach(k=>{ if(!areas.find(a=>a.nombre===k)) areas.push({nombre:k, items:nuevos[k]}); });
     areas.forEach(a=> a.items.forEach(it=>{
-      const nota = [it.o, S.notas[it.id]].filter(Boolean).join(' | ');
+      const obsDe = (S.obs && Object.prototype.hasOwnProperty.call(S.obs, it.id))
+        ? S.obs[it.id] : it.o;
+      const nota = [obsDe, S.notas[it.id]].filter(Boolean).join(' | ');
       const rev = pendientes().some(x=> x.cine===c.c && x.area===a.nombre && x.eq===it.n) ? 'PENDIENTE' : '';
       if(it.c){
         const vt = vtidDe(it);

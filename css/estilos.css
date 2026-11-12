@@ -503,3 +503,12 @@ textarea:focus-visible, input:focus-visible{
   *, *::before, *::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;
     transition-duration:.01ms !important}
 }
+
+/* Edición desde la ficha de la ventana de estado (✎ por fila) */
+.frow2>.fed{flex:0 0 auto;width:30px;height:26px;padding:0;
+  border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--mut);
+  font-size:13px;line-height:1;cursor:pointer}
+.frow2>.fed:hover{background:#eef3f9;border-color:var(--brand);color:var(--brand)}
+.fld textarea{width:100%;padding:11px 13px;border:1px solid var(--line);
+  border-radius:11px;font:inherit;font-size:14px;background:#fff;color:var(--ink);
+  resize:vertical;min-height:120px;box-sizing:border-box}
