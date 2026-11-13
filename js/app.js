@@ -977,22 +977,6 @@ function home(){
     ${sparkline(S.hist)}
   </div></div>
 
-  ${(()=>{ const mov = histMovimiento(); if(!mov) return `
-    <div class="card secc"><div class="hd"><h2>¿Cómo se movieron los números?</h2></div><div class="bd">
-      <div class="empty-note">Todavía no hay un registro anterior con el que comparar:
-      los contadores se guardan cada día que usas el panel.</div></div></div>`;
-    const pila = (txt, d, subeBien)=> `<span class="delta ${
-      d===0? 'flat' : ((d>0)===!!subeBien? 'up':'down')}">${
-      d>0? '▲ +'+d : d<0? '▼ '+d : '• sin cambio'} ${txt}</span>`;
-    return `<div class="card secc"><div class="hd"><h2>¿Cómo se movieron los números?</h2>
-      <span class="ad">${mov.a} → ${mov.b}</span></div><div class="bd">
-      <div class="legend" style="margin-top:0">
-        ${pila('operativos', mov.ok, true)}
-        ${pila('faltantes', mov.falta, false)}
-        ${pila('dañados/reparación', mov.malo, false)}
-        ${pila('sin revisar', mov.pend, false)}
-      </div></div></div>`; })()}
-
   ${veMeta()? `<div class="card secc"><div class="hd"><h2>Meta: dejar cada cine al100%</h2>
     ${adminUsuarios()? '<button id="nuevo-cine">＋ Nuevo cine</button>' : ''}</div>
     <div class="bd">
@@ -2181,7 +2165,23 @@ function gestion(){
                    comprado:'#1f9d55', ejecutado:'#0d7a4f'};
       const planPend = S.acc.filter(a=> a.estado==='pendiente' || a.estado==='cotizado');
       const montoPend = planPend.reduce((s,a)=> s+(Number(a.monto)||0), 0);
+      const mov = histMovimiento();
+      const pila = (txt, d, subeBien)=> `<span class="delta ${
+        d===0? 'flat' : ((d>0)===!!subeBien? 'up':'down')}">${
+        d>0? '▲ +'+d : d<0? '▼ '+d : '• sin cambio'} ${txt}</span>`;
       return `
+      ${mov? `<div class="card secc"><div class="hd"><h2>¿Cómo se movieron los números?</h2>
+        <span class="ad">${mov.a} → ${mov.b} · contadores guardados</span></div><div class="bd">
+        <div class="legend" style="margin-top:0">
+          ${pila('operativos', mov.ok, true)}
+          ${pila('faltantes', mov.falta, false)}
+          ${pila('dañados/reparación', mov.malo, false)}
+          ${pila('sin revisar', mov.pend, false)}
+        </div></div></div>`
+        : `<div class="card secc"><div class="hd"><h2>¿Cómo se movieron los números?</h2></div>
+           <div class="bd"><div class="empty-note">Todavía no hay un registro anterior con el
+           que comparar: los contadores se guardan cada día que usas el panel.</div></div></div>`}
+
       <div class="grid2">
         <div class="card secc"><div class="hd"><h2>Avance hacia el100%</h2>
           <span class="ad">${av.enMeta}/${DATA.cines.length} cines en la meta</span></div>
