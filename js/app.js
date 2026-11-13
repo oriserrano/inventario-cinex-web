@@ -2586,6 +2586,7 @@ function fusionarSeguro(rem){
   // el resto (meta, hist…): lo más reciente manda. El perfil NUNCA viaja de la nube
   const propios = ['mov','perfil','claves','obsoletos','areaNombres','comps','est','nuevos',
                    'visitas','retirados','borrados','areaBorr',
+                   'meta','ideales',
                    'cine','tab','gseccion','planAbiertos','planLimit','qhIdeales',
                    '_modif','_sync'];
   Object.keys(r).forEach(k=>{ if(propios.indexOf(k)<0) S[k] = r[k]; });
