@@ -2554,6 +2554,9 @@ function fusionarRemoto(rem){
 function fusionarSeguro(rem){
   const r = rem.data || {};
   const remTs = Date.parse(rem.actualizado || 0) || 0;
+  // Si nadie más escribió desde nuestra última subida, lo local manda y NO se
+  // fusiona: así lo que acabas de borrar o deshacer no vuelve de la nube.
+  if(remTs <= (S._sync || 0)) return false;
   if(!r || typeof r !== 'object') return false;
   // eventos: unión por su clave compuesta
   const vistos = new Set((S.mov||[]).map(m=> m.ts+'|'+m.id+'|'+m.de+'|'+m.a));
