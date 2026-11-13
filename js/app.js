@@ -2750,7 +2750,12 @@ function aplicarMeta(){
   if(!S.meta) return;
   DATA.meta = DATA.meta || {};
   Object.keys(S.meta).forEach(k=>{
-    DATA.meta[k] = Object.assign({}, DATA.meta[k] || {}, S.meta[k]);
+    const d = DATA.meta[k] = Object.assign({}, DATA.meta[k] || {}, S.meta[k]);
+    // disponibles = ideal − instalado (cuando los dos están cargados)
+    if(typeof d.ideal === 'number' && typeof d.inst === 'number'){
+      d.disp = Math.max(0, d.ideal - d.inst);
+      S.meta[k].disp = d.disp;
+    }
   });
 }
 function editarMeta(cine, campo, valor){
