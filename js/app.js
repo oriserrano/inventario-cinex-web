@@ -153,6 +153,18 @@ function estadosItem(it){
   if(it.c) return it.c.map((ch,ci)=> e[ci]||'falta');
   return [e.e||'ok'];
 }
+/* Si el componente quedó operativo, su acción del plan no tiene sentido:
+   se cierra como ejecutada (antes quedaban planes "reparar" en algo sano). */
+function cerrarPlanSiOk(id, idx){
+  if(!Array.isArray(S.acc)) return false;
+  const acc = S.acc.find(x=> x.key===id+'|'+idx);
+  if(!acc || (acc.estado!=='pendiente' && acc.estado!=='cotizado')) return false;
+  acc.estado = 'ejecutado';
+  acc.cierre = new Date().toISOString();
+  acc.autor = AUTOR();
+  acc.nota = (acc.nota? acc.nota+' · ' : '') + 'quedó operativo';
+  return true;
+}
 function nuevoDe(id, idx, a, causa, rev){
   const it = findItem(id);
   const p = partes(id);
@@ -164,8 +176,9 @@ function nuevoDe(id, idx, a, causa, rev){
   const viejo = S.est[id][idx];
   if(viejo===a) return false;
   S.est[id][idx]=a;
-  // si vuelve a operativo se cierra sola la revisión pendiente de ese componente
+  // si vuelve a operativo se cierra sola la revisión pendiente Y el plan
   if(a==='ok'){
+    cerrarPlanSiOk(id, idx);
     S.mov.forEach(m=>{
       if(m.rev!=='pendiente') return;
       const mismo = m.id===id || (!m.id && m.cine===cineReal && m.area===areaReal &&
@@ -352,6 +365,7 @@ function render(){
   }
   if(vista.tab==='quehacer') app.innerHTML = queHacer();
   else if(vista.tab==='visitas') app.innerHTML = visitas();
+  else if(vista.tab==='dashboard') app.innerHTML = dashboard();
   else if(vista.tab==='gestion') app.innerHTML = gestion();
   else app.innerHTML = vista.modo==='home' ? home() : cineVista(DATA.cines.find(c=>c.c===vista.cine));
   if(vista.tab==='visitas') bindFirma();
@@ -499,6 +513,126 @@ function tarjetaFiltro(){
     ${(!vista.gfTodo && filas.length>mostrar.length)?
       `<div class="rowbtn"><button data-gfall>Ver las ${filas.length}</button></div>`:''}
   </div></div>`;
+}
+/* ============ DASHBOARD (solo Gerencia) · se descarga en PDF ============ */
+function datosDashboard(){
+  const t = conteosTotales();
+  const pctOper = t.total? Math.round(t.ok/t.total*100) : 0;
+  const meta = DATA.meta || {};
+  let ideal = 0, inst = 0;
+  DATA.cines.forEach(c=>{ const m = meta[c.c]; if(m && m.ideal){ ideal += m.ideal; inst += (m.inst||0); } });
+  const avance = ideal? Math.round(inst/ideal*100) : null;
+
+  const vivas = (S.acc||[]).filter(a=> a.estado!=='ejecutado');
+  const porCine = {}, porComp = {};
+  vivas.forEach(a=>{
+    const cant = Number(a.cant)||1;
+    const g = porCine[a.cine] || (porCine[a.cine] = {comprar:0, reparar:0, revisar:0, monto:0, n:0});
+    const h = porComp[a.comp] || (porComp[a.comp] = {comprar:0, reparar:0, revisar:0, monto:0});
+    if(a.tipo==='comprar'){ g.comprar+=cant; h.comprar+=cant; }
+    else if(a.tipo==='reparar'){ g.reparar+=cant; h.reparar+=cant; }
+    else { g.revisar+=cant; h.revisar+=cant; }
+    g.monto += Number(a.monto)||0; g.n++;
+    h.monto += Number(a.monto)||0;
+  });
+  const filasCine = DATA.cines.map(c=>{
+    const r = conteos(c), m = meta[c.c] || {};
+    const p = porCine[c.c] || {comprar:0, reparar:0, revisar:0, monto:0, n:0};
+    return {cod:c.c, n:c.n, p, ideal:m.ideal, disp:m.disp,
+            oper: r.total? Math.round(r.ok/r.total*100) : 0};
+  }).filter(x=> x.p.n || x.ideal)
+    .sort((a,b)=> (b.p.monto - a.p.monto) || (a.oper - b.oper));
+
+  const tot = vivas.reduce((s,a)=> s+(Number(a.monto)||0), 0);
+  const totComprar = vivas.filter(a=>a.tipo==='comprar').reduce((s,a)=> s+(Number(a.cant)||1), 0);
+  const totReparar = vivas.filter(a=>a.tipo==='reparar').reduce((s,a)=> s+(Number(a.cant)||1), 0);
+  const compras = Object.entries(porComp).filter(([,v])=> v.comprar>0)
+    .sort((a,b)=> b[1].monto - a[1].monto);
+  const enReparacion = Object.entries(porComp).filter(([,v])=> v.reparar>0)
+    .sort((a,b)=> b[1].monto - a[1].monto);
+  const estadosPlan = EST_PLAN.map(([k,txt])=>({k, txt,
+    n:(S.acc||[]).filter(a=>a.estado===k).length,
+    v:(S.acc||[]).filter(a=>a.estado===k).reduce((s,a)=> s+(Number(a.monto)||0), 0)}));
+  return {t, pctOper, ideal, inst, avance, filasCine, compras, enReparacion, tot,
+          totComprar, totReparar, estadosPlan, vivas};
+}
+function dashboard(){
+  const d = datosDashboard();
+  const hoy = new Date().toLocaleDateString('es-VE', {day:'2-digit', month:'long', year:'numeric'});
+  const filas = d.filasCine;
+  const suma = (fn)=> filas.reduce((s,f)=> s+fn(f), 0);
+  return `
+  <div class="dash-tit">
+    <div><h2>Informe para Gerencia</h2>
+      <span class="ad">Inventario CINEX · ${hoy} · ${DATA.cines.length} cines</span></div>
+    <div class="rowbtn no-print">
+      <button class="btn-p" id="dash-pdf">⬇ Descargar PDF</button>
+      <button id="dash-share">↗ Compartir</button>
+    </div>
+  </div>
+
+  <div class="kpis dash-kpi">
+    <div><b>${d.pctOper}%</b><span>Operatividad de la cadena</span></div>
+    <div><b>${d.avance===null? '—' : d.avance+'%'}</b><span>Avance (ideal vs instalado)</span></div>
+    <div><b>${d.t.ok}/${d.t.total}</b><span>Componentes operativos</span></div>
+    <div><b>${fmt(d.tot)}</b><span>Inversión planificada</span></div>
+    <div><b>${d.totComprar}</b><span>Piezas a comprar</span></div>
+    <div><b>${d.totReparar}</b><span>Piezas a reparar</span></div>
+  </div>
+
+  <div class="card secc"><div class="hd"><h2>Lo que falta por cine</h2>
+    <span class="ad">plan pendiente · mayor inversión primero</span></div><div class="bd">
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Cine</th><th class="num">Operatividad</th><th class="num">Espacios disp.</th>
+        <th class="num">A comprar</th><th class="num">A reparar</th><th class="num">Inversión</th></tr></thead>
+      <tbody>${filas.map(f=>`<tr>
+        <td><b>${f.n}</b></td>
+        <td class="num"><b style="color:${f.oper>=90?'var(--ok)':(f.oper>=70?'#9a6d00':'var(--mal)')}${
+          f.oper>=90?';font-weight:800':''}">${f.oper}%</b></td>
+        <td class="num">${(f.disp===null||f.disp===undefined)? '—' : f.disp}</td>
+        <td class="num">${f.p.comprar||'—'}</td>
+        <td class="num">${f.p.reparar||'—'}</td>
+        <td class="num"><b>${fmt(f.p.monto)}</b></td></tr>`).join('')}</tbody>
+      <tfoot><tr><td><b>Total</b></td><td class="num"><b>${d.pctOper}%</b></td>
+        <td class="num">${d.ideal? d.ideal-d.inst : '—'}</td>
+        <td class="num"><b>${suma(f=>f.p.comprar)}</b></td>
+        <td class="num"><b>${suma(f=>f.p.reparar)}</b></td>
+        <td class="num"><b>${fmt(d.tot)}</b></td></tr></tfoot>
+    </table></div></div></div>
+
+  <div class="grid2">
+    <div class="card secc"><div class="hd"><h2>Qué debo comprar</h2>
+      <span class="ad">${d.compras.length} tipos</span></div><div class="bd">
+      ${d.compras.length? d.compras.map(([k,v])=>`<div class="filaest">
+        <span>${k}</span>
+        <span class="bar"><i style="width:${Math.min(100, v.comprar*100/Math.max(1,d.compras[0][1].comprar))}%;background:var(--brand)"></i></span>
+        <b>${v.comprar}</b><span class="ad">${v.monto? fmt(v.monto):'sin precio'}</span></div>`).join('')
+        : '<div class="empty-note">Nada pendiente de compra ✓</div>'}
+    </div></div>
+
+    <div class="card secc"><div class="hd"><h2>Qué está en reparación</h2>
+      <span class="ad">${d.enReparacion.length} tipos</span></div><div class="bd">
+      ${d.enReparacion.length? d.enReparacion.map(([k,v])=>`<div class="filaest">
+        <span>${k}</span>
+        <span class="bar"><i style="width:${Math.min(100, v.reparar*100/Math.max(1,d.enReparacion[0][1].reparar))}%;background:#b98200"></i></span>
+        <b>${v.reparar}</b><span class="ad">${v.monto? fmt(v.monto):'—'}</span></div>`).join('')
+        : '<div class="empty-note">Nada en reparación ✓</div>'}
+    </div></div>
+  </div>
+
+  <div class="card secc"><div class="hd"><h2>Plan de acción</h2>
+    <span class="ad">${(S.acc||[]).length} acciones</span>
+    <button class="btn-p no-print" id="dash-add">+ Agregar acción</button></div><div class="bd">
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Estado</th><th class="num">Acciones</th><th class="num">Monto</th></tr></thead>
+      <tbody>${d.estadosPlan.map(e=>`<tr><td>${e.txt}</td>
+        <td class="num">${e.n}</td><td class="num">${fmt(e.v)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td><b>Total</b></td>
+        <td class="num"><b>${(S.acc||[]).length}</b></td>
+        <td class="num"><b>${fmt((S.acc||[]).reduce((s,a)=> s+(Number(a.monto)||0),0))}</b></td></tr></tfoot>
+    </table></div>
+    <div class="ad no-print" style="margin-top:9px">El detalle completo está en la pestaña "Qué hacer".</div>
+    </div></div>`;
 }
 function visitas(){
   if(!vista.vis) vista.vis = borradorVisita();
@@ -794,6 +928,8 @@ function abrirEdicion(id){
   document.getElementById('ed-nuevocomp').value = '';
   const br = document.getElementById('ed-retirar');
   br.textContent = RETIRADO(it)? 'Reincorporar equipo' : 'Retirar equipo';
+  const bo = document.getElementById('ed-obsoleto');
+  if(bo) bo.textContent = esObsoleto(id)? 'Dejar de ser obsoleto' : 'Marcar como obsoleto';
   pintarCompsEd();
   actualizarPos();
   document.getElementById('modal-ed').classList.add('on');
@@ -989,6 +1125,9 @@ function detalleLinea(it, ci){
 function abrirDetalle(id, ci){
   const it = findItem(id); if(!it) return;
   const d = dondeEsta(id); if(!d) return;
+  if(ci!==undefined && ci!==null){              // coherencia: si está ok, cerrar plan
+    if(estadoActualDe(id, ci)==='ok' && cerrarPlanSiOk(id, ci)) save();
+  }
   const tit = document.getElementById('dt-tit');
   const sub = document.getElementById('dt-sub');
   const estBox = document.getElementById('dt-estado');
@@ -1111,6 +1250,7 @@ function itemHtml(it){
         </span>
       </div>
       ${RETIRADO(it)? `<span class="badge ret">RETIRADO · ${RETIRADO(it).motivo||''}</span>`:''}
+      ${esObsoleto(it.id)? `<span class="badge obs" title="${((S.obsoletos[it.id]||{}).nota||'')+' · '+((S.obsoletos[it.id]||{}).autor||'')}">OBSOLETO</span>`:''}
       <div class="most">${tarjetas}</div>
     </div>`;
   }
@@ -1122,6 +1262,7 @@ function itemHtml(it){
         <span class="em ${mod?'':'vac'}" data-mod="${it.id}">${mod? mod : '+ Modelo'}</span></span>
       <span class="pill ${est}" data-single="${it.id}">${LABEL[est]}</span>
       ${revAqui? `<span class="badge rev">REV</span>`:''}
+      ${esObsoleto(it.id)? `<span class="badge obs">OBSOLETO</span>`:''}
       <span class="acts"><button data-note="${it.id}">✎</button></span>
     </div>
     ${RETIRADO(it)? `<span class="badge ret">RETIRADO · ${RETIRADO(it).motivo||''}</span>`:''}
@@ -1158,9 +1299,13 @@ function cineVista(c){
       estadosItem(it).forEach(s=>{ cA[s]++; cA.total++; });
     });
     return `<div class="card area">
-      <div class="hd"><h2>${a.nombre}</h2>
+      <div class="hd"><h2>${nombreArea(c.c, a.nombre)}
+          <button class="mini" data-arenom="${c.c}|${a.nombre}"
+            title="Cambiar el nombre de esta área">✎</button></h2>
         <span class="c">${cA.ok}/${cA.total} OK</span>
         <button data-ok-area="${a.nombre}" title="Marcar área operativa">✓ todo</button>
+        <button class="mini danger" data-areadel="${c.c}|${a.nombre}"
+          title="Borrar esta área del panel">🗑</button>
       </div>
       ${a.ro?`<div class="ro">${a.ro}</div>`:''}
       <div class="body">
@@ -1481,12 +1626,29 @@ function sincronizarPlan(){
           if(est==='pend') return;
           const key = it.id+'|'+ci;
           let a = S.acc.find(x=>x.key===key);
+          // VTID va dentro del pinpad: si no hay pinpad (o el pinpad también
+          // falta) no se cuenta aparte; solo si el pinpad está y sin VTID.
+          if(ch.n==='VTID'){
+            const ip = it.c.findIndex(c=> c.n==='Pinpad');
+            const ePin = ip>=0 ? ((S.est[it.id]||{})[ip] || it.c[ip].e) : 'falta';
+            if(ePin==='falta'){
+              if(a && a.estado!=='ejecutado' && a.estado!=='comprado'){
+                a.estado='ejecutado'; a.cierre=new Date().toISOString();
+                a.autor=AUTOR();
+                a.nota=(a.nota? a.nota+' · ' : '')+'va con el pinpad (no se compra aparte)';
+              }
+              return;
+            }
+          }
           if(!a && (est==='malo'||est==='rep'||est==='falta')){
             nuevaAccion(Object.assign({}, base, {key, comp:ETIQ[ch.n]||ch.n,
-              tipo: S.accionComp[key] || TIPO_EST[est],
+              tipo: est==='falta' ? 'comprar' : (S.accionComp[key] || TIPO_EST[est]),
               monto: precioDe(ETIQ[ch.n]||ch.n), cant:1}));
             n++;
-          } else cerrar(a, est);
+          } else if(a){
+            if(est==='falta' && a.tipo!=='comprar') a.tipo='comprar';   // nada que reparar
+            cerrar(a, est);
+          }
         });
       } else {
         const est = ests[0];
@@ -1712,6 +1874,11 @@ function queHacer(){
           ${cines}
         </select>
       </div>
+      ${(F!=='todo' || C!=='todos')? `<div class="filtro-on">
+        Filtrando: <b>${C!=='todos'? cineNombre(C) : 'todos los cines'}</b>
+        · <b>${F==='todo'? 'todas las acciones'
+             : (F==='reparar'? 'solo reparar' : 'solo comprar')}</b>
+        <button data-pfreset>Quitar filtro ✕</button></div>` : ''}
       ${acordeon}
       <div class="rowbtn" style="margin-top:10px">
         <button id="acc-add">+ Acción manual</button>
@@ -2009,9 +2176,19 @@ function estadoActualDe(id, idx){
 }
 function actualizarFalloModal(){
   if(!mPend) return;
-  const fallo = mPend.nuevo==='malo' || mPend.nuevo==='rep';
+  const es = mPend.nuevo;
+  const fallo = es==='malo' || es==='rep';
+  const falta = es==='falta';
   const box = document.getElementById('m-fallo');
-  if(box) box.hidden = !fallo;
+  if(box) box.hidden = !(fallo || falta);
+  // "falta" solo pide el porqué: no hay causas ni acción de reparación
+  const pideCausa = el=>{ const e = document.getElementById(el); if(e) e.hidden = !fallo; };
+  pideCausa('m-tit-causa'); pideCausa('m-causas');
+  pideCausa('m-tit-accion'); pideCausa('m-accion');
+  const det = document.getElementById('m-det');
+  if(det) det.placeholder = falta
+    ? '¿Por qué falta? Ej. no se compró · el cine lo guardó · se retiró'
+    : 'Detalle (opcional): ej. cable de red de3 m a sustituir';
   const it = findItem(mPend.id);
   document.getElementById('m-sb').textContent =
     `${it? it.n:''} · ${etiquetaComp(mPend.id, mPend.idx)} · actual: ${
@@ -2027,6 +2204,26 @@ function accDe(id, idx){
     (d && (S.acc||[]).find(a=> a.cine===d.c.c && a.area===d.area &&
       a.eq===nombreDe(it) && (!ch || a.comp===(ETIQ[ch.n]||ch.n)))) || null;
 }
+/* --- nombre visible de área (se puede renombrar sin tocar los ids) --- */
+function nombreArea(cine, area){
+  return (S.areaNombres && S.areaNombres[cine+'|'+area]) || area;
+}
+function cineNombre(cod){
+  const c = DATA.cines.find(x=>x.c===cod);
+  return c? c.n : cod;
+}
+/* --- áreas borradas: se quitan de DATA en cada arranque --- */
+function aplicarBorradosArea(){
+  if(!Array.isArray(S.areaBorr) || !S.areaBorr.length) return;
+  const fuera = new Set(S.areaBorr);
+  DATA.cines.forEach(c=>{ c.ar = c.ar.filter(a=> !fuera.has(c.c+'|'+a.a)); });
+  Object.keys(S.nuevos||{}).forEach(cod=>{
+    S.nuevos[cod] = (S.nuevos[cod]||[]).filter(it=> !fuera.has(cod+'|'+(it.area||'')));
+  });
+}
+function esObsoleto(id){ return !!(S.obsoletos && S.obsoletos[id]); }
+function esAreaBorrada(clave){ return Array.isArray(S.areaBorr) && S.areaBorr.indexOf(clave)>=0; }
+
 /* Ficha del equipo dentro de la ventana de estado: todo lo que se sabe de él */
 function fichaHTML(id, idx){
   const it = findItem(id); if(!it) return '';
@@ -2104,7 +2301,8 @@ function confirmarModal(){
   const rev = (enCD || !document.getElementById('m-rev').checked) ? 'ok' : 'pendiente';
   const causa = [mCausa, det].filter(Boolean).join(' — ');
   const accSel = document.querySelector('[data-accion].on');
-  const tipo = ACC_MAP[(accSel && accSel.dataset.accion) || 'reparar'] || 'reparar';
+  const tipo = (mPend.nuevo==='falta') ? 'comprar'      // falta → se compra
+    : (ACC_MAP[(accSel && accSel.dataset.accion) || 'reparar'] || 'reparar');
   const {id, idx, nuevo, viejo} = mPend;
   if(nuevo===viejo && !causa){ cerrarModal(); return; }   // no cambió nada
   const key = id+'|'+idx;
@@ -2295,7 +2493,8 @@ function tabsPermitidos(){
   const base = ['resumen','visitas'];                          // todos registran visitas
   if(rol==='soporte') return base;
   if(rol==='infraestructura') return base.concat(['gestion']);
-  return base.concat(['quehacer','gestion']);                  // coordinación y gerencia
+  if(rol==='coordinacion') return base.concat(['quehacer','gestion']);
+  return base.concat(['quehacer','gestion','dashboard']);      // dashboard: solo gerencia
 }
 function veMeta(){ return ROL()==='gerencia' || ROL()==='coordinacion'; }
 
@@ -2454,6 +2653,8 @@ document.addEventListener('click', async ev=>{
 
   const pf = t.closest('[data-pf]');
   if(pf){ vista.planF = pf.dataset.pf; render(); return; }
+  if(t.closest('[data-pfreset]')){ vista.planF='todo'; vista.planC='todos';
+    vista.planG = vista.planG || 'tipo'; render(); return; }
 
   const pg = t.closest('[data-pg]');
   if(pg){ vista.planG = pg.dataset.pg; render(); return; }
@@ -2758,6 +2959,106 @@ document.addEventListener('click', async ev=>{
     return;
   }
 
+  // --- DASHBOARD (solo gerencia): PDF, compartir, agregar acción ---
+  if(t.id==='dash-pdf'){ window.print(); return; }
+  if(t.id==='dash-share'){
+    const url = location.href, txt = 'Inventario CINEX · informe para Gerencia';
+    if(navigator.share){ navigator.share({title:'Inventario CINEX', text:txt, url}).catch(()=>{}); return; }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(()=>flash('Enlace copiado ✓'))
+        .catch(()=>flash('No se pudo copiar el enlace')); return;
+    }
+    flash('Usa "Descargar PDF" y compártelo');
+    return;
+  }
+  if(t.id==='dash-add'){
+    const rv = await pedir({titulo:'Nueva acción de plan',
+      sub:'Se agrega al plan de toda la cadena.',
+      campos:[
+        {id:'comp', label:'Qué falta (ej. Impresora fiscal)',
+         placeholder:'Nombre del equipo o componente'},
+        {id:'cine', type:'select', label:'Cine', opciones: DATA.cines.map(c=>[c.c, c.n])},
+        {id:'cant', type:'number', label:'Cantidad', value:'1', inputmode:'numeric'},
+        {id:'monto', type:'number', label:'Monto unitario (US$)', inputmode:'decimal'}
+      ], ok:'Agregar al plan',
+      validar: v=> !(v.comp||'').trim()? 'Escribe qué falta.' : null});
+    if(!rv) return;
+    nuevaAccion({comp: rv.comp.trim(), cine: rv.cine, area:'Varios', eq:'', puesto:'',
+      tipo:'comprar', cant: Math.max(1, Number(rv.cant)||1),
+      monto: (rv.monto===''||rv.monto==null)? ''
+             : (Number(String(rv.monto).replace(/[^\d.]/g,''))||0)});
+    save(); render(); flash('Acción agregada al plan ✓');
+    return;
+  }
+
+  // --- ÁREAS: renombrar / borrar (papelerita) ---
+  const aren = t.closest('[data-arenom]');
+  if(aren){
+    const clave = aren.dataset.arenom, k = clave.indexOf('|');
+    const cod = clave.slice(0,k), ar = clave.slice(k+1);
+    const rv = await pedir({titulo:'Nombre del área',
+      sub: cineNombre(cod)+' · cambia solo la vista; los equipos conservan su lugar y sus historiales.',
+      campos:[{id:'v', label:'Nombre', value: nombreArea(cod, ar),
+               placeholder:'Ej. Taquilla + Dulcería'}], ok:'Guardar nombre'});
+    if(!rv) return;
+    const nvo = (rv.v||'').trim();
+    S.areaNombres = S.areaNombres || {};
+    if(!nvo || nvo===ar) delete S.areaNombres[clave];
+    else S.areaNombres[clave] = nvo;
+    save(); render(); flash('Nombre del área actualizado ✓');
+    return;
+  }
+  const ard = t.closest('[data-areadel]');
+  if(ard){
+    const clave = ard.dataset.areadel, k = clave.indexOf('|');
+    const cod = clave.slice(0,k), ar = clave.slice(k+1);
+    const rv = await pedir({titulo:'Borrar área',
+      sub: nombreArea(cod, ar)+' · desaparece del panel, de los totales, del plan y de la exportación. No toca a los demás cines.',
+      campos:[{id:'ok', label:'Escribe BORRAR para confirmar'}], ok:'Borrar área',
+      validar: v=> (v.ok||'').trim().toUpperCase()!=='BORRAR' ? 'Escribe BORRAR para confirmar.' : null});
+    if(!rv) return;
+    S.areaBorr = Array.isArray(S.areaBorr)? S.areaBorr : [];
+    if(S.areaBorr.indexOf(clave)<0) S.areaBorr.push(clave);
+    save(); render(); flash('Área borrada ✓');
+    return;
+  }
+
+  // --- OBSOLETO ---
+  if(t.id==='ed-obsoleto'){
+    const id = mEd, it = findItem(id); if(!it) return;
+    if(esObsoleto(id)){
+      delete S.obsoletos[id];
+      (S.acc||[]).forEach(a=>{ if(a.key===id+'|obsoleto' &&
+        (a.estado==='pendiente'||a.estado==='cotizado')){
+          a.estado='ejecutado'; a.cierre=new Date().toISOString();
+          a.autor=AUTOR(); a.nota='dejó de ser obsoleto'; }});
+      save(); render(); abrirEdicion(id); flash('Dejó de ser obsoleto ✓');
+      return;
+    }
+    const rv = await pedir({titulo:'Marcar como obsoleto',
+      sub: nombreDe(it)+' · entra en las compras como reemplazo.',
+      campos:[{id:'nota', label:'Motivo (opcional)',
+               placeholder:'Ej. sin refacciones / fuera de garantía'}], ok:'Marcar obsoleto'});
+    if(!rv) return;
+    const nota = (rv.nota||'').trim();
+    S.obsoletos = S.obsoletos || {};
+    S.obsoletos[id] = {ts:new Date().toISOString(), autor:AUTOR(), nota};
+    const dd = id.indexOf('|')<0 ? dondeEsta(id) : null;
+    const cine = dd? dd.c.c : partes(id).cine;
+    const area = dd? dd.area : partes(id).area;
+    const comp = nombreDe(it);
+    S.acc = S.acc || [];
+    if(!S.acc.find(a=> a.key===id+'|obsoleto')){
+      S.acc.push({key:id+'|obsoleto', cine, area, eq:comp, comp, puesto:(it.p||''),
+        tipo:'comprar', monto: it.c? (precioDe('Estación completa')||'') : (precioDe(comp)||''),
+        cant:1, estado:'pendiente', nota:'obsoleto'+(nota? ': '+nota : ' · reemplazo'),
+        autor:AUTOR(), ts:new Date().toISOString()});
+    }
+    save(); render(); abrirEdicion(id);
+    flash('Obsoleto ✓ · ya cuenta en las compras');
+    return;
+  }
+
   const edit = t.closest('[data-edit]');
   if(edit){ abrirEdicion(edit.dataset.edit); return; }
   if(t.id==='ed-si'){ guardarEdicion(); return; }
@@ -2909,8 +3210,11 @@ document.addEventListener('click', async ev=>{
     const rp = await pedir({titulo:'Acción del plan',
       sub: `${nombreDe(itp)} · ${etiquetaComp(id, idx)}`,
       campos:[
-        {id:'tipo', type:'select', label:'Acción', value: ap.tipo||'reparar',
-         opciones:[['reparar','Reparar'],['comprar','Comprar'],['revisar','Revisar']]},
+        {id:'tipo', type:'select',
+         label: estadoActualDe(id, idx)==='falta' ? 'Acción (un faltante se compra)'
+                : 'Acción',
+         value: estadoActualDe(id, idx)==='falta' ? 'comprar' : (ap.tipo||'reparar'),
+         opciones:[['comprar','Comprar'],['reparar','Reparar'],['revisar','Revisar']]},
         {id:'cant', type:'number', label:'Cantidad', value: ap.cant||1, inputmode:'numeric'},
         {id:'estado', type:'select', label:'Estado', value: ap.estado||'pendiente',
          opciones: EST_PLAN},
@@ -2921,7 +3225,8 @@ document.addEventListener('click', async ev=>{
       ],
       ok:'Guardar plan'});
     if(rp){
-      ap.tipo = ['reparar','comprar','revisar'].includes(rp.tipo)? rp.tipo : ap.tipo;
+      ap.tipo = estadoActualDe(id, idx)==='falta' ? 'comprar'
+        : (['reparar','comprar','revisar'].includes(rp.tipo)? rp.tipo : ap.tipo);
       ap.cant = Math.max(1, Number(rp.cant)||1);
       ap.estado = EST_PLAN.some(e=>e[0]===rp.estado)? rp.estado : (ap.estado||'pendiente');
       ap.monto = (rp.monto===''||rp.monto==null)? ''
@@ -3143,7 +3448,8 @@ pintarNube();
 (async ()=>{
   if(await sbConectar()){
     const rem = await sbCargar();
-    if(rem && fusionarRemoto(rem)){ aplicarComps(); ensureIds(); sincronizarPlan(); save(); }
+    if(rem && fusionarRemoto(rem)){ aplicarComps(); aplicarBorradosArea();
+      ensureIds(); sincronizarPlan(); save(); }
   }
   pintarNube();
   if(S.perfil) render();
@@ -3152,6 +3458,7 @@ if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
 aplicarComps();
+aplicarBorradosArea();
 ensureIds();
 sincronizarPlan();          // crea/completa el plan DESPUÉS de asignar ids
 document.getElementById('subtop').textContent =

@@ -460,6 +460,43 @@ button.disco{min-height:0}
 .frow span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .frow button{min-height:36px;padding:6px 11px;font-size:12.5px;flex:none}
 
+/* mini-botones de área (renombrar / papelerita) y avisos */
+.hd h2 .mini{min-height:30px;padding:3px 7px;border:1px solid var(--line);border-radius:8px;
+  background:#fff;font-family:inherit;font-size:13px;cursor:pointer;color:var(--mut);margin-left:5px}
+.hd h2 .mini:hover{border-color:var(--brand);color:var(--brand)}
+.hd h2 .mini.danger:hover{border-color:var(--mal);color:var(--mal);background:#fff4f4}
+.badge.obs{background:#5b6570;color:#fff}
+.badge.obs::before{content:'♻ '}
+.filtro-on{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:11px 13px;
+  border:1.5px solid var(--brand);background:#eef5fd;border-radius:11px;
+  font-size:13.5px;margin-bottom:10px}
+.filtro-on b{color:var(--brand)}
+.filtro-on button{margin-left:auto;min-height:36px;padding:7px 12px;border:1px solid var(--brand);
+  background:#fff;color:var(--brand);border-radius:9px;font-family:inherit;font-weight:800;
+  font-size:12.5px;cursor:pointer}
+
+/* Dashboard de Gerencia */
+.dash-tit{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 12px}
+.dash-tit h2{margin:0;font-size:19px}
+.dash-tit .rowbtn{margin:0}
+.dash-kpi div{padding:12px 10px}
+.dash-kpi b{font-size:22px}
+.dash-kpi span{font-size:11.5px}
+
+@media print{
+  .top,.tabs,#flash,.modal,.no-print,.rowbtn,.btn-add,.filters,.addrow{display:none !important}
+  body{background:#fff !important}
+  main#app{padding:0 !important}
+  .card{box-shadow:none !important;border:1px solid #d7dee6;break-inside:avoid;
+    page-break-inside:avoid;margin-bottom:10px !important}
+  .grid2{display:block !important}
+  .tbl-wrap{overflow:visible !important}
+  .tbl{font-size:11.5px}
+  .kpis{margin-bottom:10px}
+  .dash-tit h2{font-size:20px}
+  a{color:inherit;text-decoration:none}
+}
+
 /* Visitas: formulario, checklist, firma e historial */
 .vform{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 @media (max-width:640px){ .vform{grid-template-columns:1fr} }

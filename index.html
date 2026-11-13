@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="css/estilos.css?v=1794540276">
+<link rel="stylesheet" href="css/estilos.css?v=1794544710">
 </head>
 <body>
 <header class="top">
@@ -24,6 +24,7 @@
   <button data-tab="resumen" class="on">Resumen</button>
   <button data-tab="quehacer">Qué hacer</button>
   <button data-tab="visitas">Visitas</button>
+  <button data-tab="dashboard">Dashboard</button>
   <button data-tab="gestion">Gestión</button>
   <button class="btn-g" id="btn-instalar" style="display:none">⬇ Instalar</button>
   <button class="rol" id="btn-perfil">Perfil</button>
@@ -44,10 +45,10 @@
       <button data-estado="pend">Sin revisar</button>
     </div>
     <div id="m-fallo" hidden>
-      <div class="sb" style="margin-top:13px">¿Qué le pasó?</div>
+      <div class="sb" id="m-tit-causa" style="margin-top:13px">¿Qué le pasó?</div>
       <div class="causas" id="m-causas"></div>
       <input type="text" id="m-det" placeholder="Detalle (opcional): ej. cable de red de3 m a sustituir">
-      <div class="sb" style="margin-bottom:7px">Acción requerida</div>
+      <div class="sb" id="m-tit-accion" style="margin-bottom:7px">Acción requerida</div>
       <div class="causas" id="m-accion">
         <button data-accion="reparar" class="on">Reparar</button>
         <button data-accion="sustituir">Sustituir</button>
@@ -138,6 +139,9 @@
       <button id="ed-retirar" class="btn-d">Retirar equipo</button>
       <button id="ed-borrar" class="btn-d">Borrar equipo</button>
     </div>
+    <div class="rowbtn" style="margin-top:8px">
+      <button id="ed-obsoleto" class="btn-d">Marcar como obsoleto</button>
+    </div>
     <div class="row" style="margin-top:14px">
       <button id="ed-no">Cancelar</button>
       <button class="btn-p" id="ed-si">Guardar</button>
@@ -173,7 +177,7 @@
   </div>
 </div>
 
-<script src="https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js?v=1794540276"></script>
-<script src="js/app.js?v=1794540276"></script>
+<script src="https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js?v=1794544710"></script>
+<script src="js/app.js?v=1794544710"></script>
 </body>
 </html>
