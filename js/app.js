@@ -2537,7 +2537,12 @@ function fusionarRemoto(rem){
   S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
   // el resto del estado: lo más reciente manda
   // el perfil NO viaja desde la nube: cada dispositivo pide su clave
-  Object.keys(r).forEach(k=>{ if(k!=='mov' && k!=='perfil') S[k] = r[k]; });
+  // ideales (meta/ideales): unión por cine — lo que escribí aquí no se pierde
+  Object.keys(r).forEach(k=>{
+    if(k==='mov' || k==='perfil') return;
+    if(k==='meta' || k==='ideales'){ S[k] = Object.assign({}, r[k]||{}, S[k]||{}); return; }
+    S[k] = r[k];
+  });
   S._sync = remTs;
   return true;
 }
@@ -2553,7 +2558,7 @@ function fusionarSeguro(rem){
     if(!vistos.has(k)){ S.mov.push(m); vistos.add(k); } });
   S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
   // mapas por clave (claves, obsoletos, componentes, estados, renombres de área)
-  ['claves','obsoletos','areaNombres','comps','est'].forEach(k=>{
+  ['claves','obsoletos','areaNombres','comps','est','meta','ideales'].forEach(k=>{
     if(r[k] && typeof r[k]==='object' && !Array.isArray(r[k]))
       S[k] = Object.assign({}, r[k], S[k] || {});   // lo local pisa; lo que falta llega
   });
@@ -2581,7 +2586,8 @@ function fusionarSeguro(rem){
   // el resto (meta, hist…): lo más reciente manda. El perfil NUNCA viaja de la nube
   const propios = ['mov','perfil','claves','obsoletos','areaNombres','comps','est','nuevos',
                    'visitas','retirados','borrados','areaBorr',
-                   'cine','tab','gseccion','planAbiertos','planLimit','_modif','_sync'];
+                   'cine','tab','gseccion','planAbiertos','planLimit','qhIdeales',
+                   '_modif','_sync'];
   Object.keys(r).forEach(k=>{ if(propios.indexOf(k)<0) S[k] = r[k]; });
   if(remTs) S._sync = Math.max(S._sync||0, remTs);
   return true;
