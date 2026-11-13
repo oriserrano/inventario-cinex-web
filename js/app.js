@@ -95,6 +95,7 @@ function puedeAprobar(m){
 function flash(m){ const f=document.getElementById('flash'); f.textContent=m; f.classList.add('on');
   clearTimeout(window.__ft); window.__ft=setTimeout(()=>f.classList.remove('on'),1300); }
 function save(){
+  S._modif = Date.now();                    // cuándo cambió esto por última vez aquí
   try{ S.hist[hoy()] = conteosTotales(); localStorage.setItem(KEY, JSON.stringify(S)); }
   catch(e){ flash('No se pudo guardar en este navegador'); }
   sbProgramar();
@@ -2387,6 +2388,64 @@ function fusionarRemoto(rem){
   S._sync = remTs;
   return true;
 }
+/* Unión sin pérdidas: lo local pisa (estamos a punto de subirlo) y lo que falta
+   en este dispositivo llega de la base. Así nadie pisa lo del otro equipo. */
+function fusionarSeguro(rem){
+  const r = rem.data || {};
+  const remTs = Date.parse(rem.actualizado || 0) || 0;
+  if(!r || typeof r !== 'object') return false;
+  // eventos: unión por su clave compuesta
+  const vistos = new Set((S.mov||[]).map(m=> m.ts+'|'+m.id+'|'+m.de+'|'+m.a));
+  (r.mov||[]).forEach(m=>{ const k = m.ts+'|'+m.id+'|'+m.de+'|'+m.a;
+    if(!vistos.has(k)){ S.mov.push(m); vistos.add(k); } });
+  S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
+  // mapas por clave (claves, obsoletos, componentes, estados, renombres de área)
+  ['claves','obsoletos','areaNombres','comps','est'].forEach(k=>{
+    if(r[k] && typeof r[k]==='object' && !Array.isArray(r[k]))
+      S[k] = Object.assign({}, r[k], S[k] || {});   // lo local pisa; lo que falta llega
+  });
+  // equipos agregados a mano: unión por id dentro de cada cine
+  if(r.nuevos && typeof r.nuevos==='object'){
+    const sal = {}, cines = new Set([...Object.keys(S.nuevos||{}), ...Object.keys(r.nuevos)]);
+    cines.forEach(c=>{
+      const lista = [], v = new Set();
+      [...(r.nuevos[c]||[]), ...((S.nuevos&&S.nuevos[c])||[])].forEach(x=>{
+        if(x && x.id && !v.has(x.id)){ v.add(x.id); lista.push(x); }
+      });
+      if(lista.length) sal[c] = lista;
+    });
+    S.nuevos = sal;
+  }
+  // listas simples (visitas, retirados, borrados, áreas borradas)
+  ['visitas','retirados','borrados','areaBorr'].forEach(k=>{
+    if(Array.isArray(r[k])){
+      const base = Array.isArray(S[k]) ? S[k] : [];
+      const idDe = x => (x && typeof x==='object') ? (x.id || x.fecha || x.k || JSON.stringify(x)) : String(x);
+      const v = new Set(base.map(idDe));
+      S[k] = base.concat(r[k].filter(x=> !v.has(idDe(x))));
+    }
+  });
+  // el resto (meta, hist…): lo más reciente manda. El perfil NUNCA viaja de la nube
+  const propios = ['mov','perfil','claves','obsoletos','areaNombres','comps','est','nuevos',
+                   'visitas','retirados','borrados','areaBorr',
+                   'cine','tab','gseccion','planAbiertos','planLimit','_modif','_sync'];
+  Object.keys(r).forEach(k=>{ if(propios.indexOf(k)<0) S[k] = r[k]; });
+  if(remTs) S._sync = Math.max(S._sync||0, remTs);
+  return true;
+}
+/* La base como fuente de verdad de las claves. null = no se pudo contactar. */
+async function sbClavesRemotas(){
+  if(SB.estado !== 'conectado') return null;
+  try{
+    const r = await fetch(SB.url + '/rest/v1/estado?id=eq.1&select=data,actualizado',
+                          {headers: sbHdr()});
+    if(!r.ok) return null;
+    const arr = await r.json();
+    if(!arr.length) return {};                       // alcanzable, pero aún no hay fila
+    fusionarSeguro(arr[0]);
+    return (arr[0].data || {}).claves || {};
+  }catch(e){ return null; }
+}
 let sbTimer = null;
 function sbProgramar(){
   if(SB.estado !== 'conectado') return;
@@ -2396,14 +2455,33 @@ function sbProgramar(){
 async function sbSubir(){
   if(SB.estado !== 'conectado') return;
   try{
+    //1) primero bajar lo que esté en la base y fusionarlo: así nadie pisa lo del otro
+    try{
+      const previo = await fetch(SB.url + '/rest/v1/estado?id=eq.1&select=data,actualizado',
+                                 {headers: sbHdr()});
+      if(previo.ok){
+        const arr = await previo.json();
+        if(arr.length) fusionarSeguro(arr[0]);
+      }
+    }catch(e){ /* sin red en el paso previo: se sube igual */ }
     const iso = new Date().toISOString();
     const copia = JSON.parse(JSON.stringify(S));
     copia._sync = Date.parse(iso);
-    const r = await fetch(SB.url + '/rest/v1/estado?id=eq.1', {
-      method: 'PATCH', headers: sbHdr({'Prefer':'return=minimal'}),
-      body: JSON.stringify({data: copia, actualizado: iso,
-        actualizado_por: (S.perfil && S.perfil.nombre) || 'sin perfil'})
-    });
+    const cuerpo = JSON.stringify({data: copia, actualizado: iso,
+      actualizado_por: (S.perfil && S.perfil.nombre) || 'sin perfil'});
+    let r = await fetch(SB.url + '/rest/v1/estado?id=eq.1', {
+      method: 'PATCH', headers: sbHdr({'Prefer':'return=minimal'}), body: cuerpo});
+    if(r.ok){
+      //2) un PATCH sobre0 filas responde ok sin escribir: si no existe la fila, crearla
+      const chk = await fetch(SB.url + '/rest/v1/estado?id=eq.1&select=id', {headers: sbHdr()});
+      const filas = chk.ok ? await chk.json() : [];
+      if(Array.isArray(filas) && !filas.length){
+        r = await fetch(SB.url + '/rest/v1/estado', {
+          method: 'POST', headers: sbHdr({'Prefer':'return=minimal'}),
+          body: JSON.stringify([{id:1, data: copia, actualizado: iso,
+            actualizado_por:(S.perfil && S.perfil.nombre)||'sin perfil'}])});
+      }
+    }
     if(r.ok) S._sync = Date.parse(iso);
   }catch(e){ /* sin red: se reintenta en el próximo guardado */ }
 }
@@ -2533,19 +2611,23 @@ function accesoHTML(){
         que te agregue desde <b>Gestión</b>.</p>`}
   </div></div>`;
 }
-function entrarAcceso(){
+async function entrarAcceso(){
   const n = accesoSel;
   if(!n) return;
   const input = document.getElementById('acc-clave');
   const err = document.getElementById('acc-err');
   const pin = (input && input.value || '').trim();
   const fallo = msg=>{ err.textContent = msg; err.hidden = false; if(input) input.focus(); };
+  //1) la base manda: se baja la clave guardada en Supabase antes de comparar
+  const rem = await sbClavesRemotas();
+  if(rem && rem[n]) S.claves[n] = rem[n];      // si la base la tiene, ésta es la válida
   const guardada = S.claves[n];
   if(guardada){
     if(hashClave(pin) !== guardada) return fallo('Clave incorrecta. Inténtalo otra vez.');
   } else {
+    if(rem === null) return fallo('Sin conexión con la base: no se pudo verificar tu clave. Revisa la conexión e inténtalo de nuevo.');
     if(pin.length < 3) return fallo('La clave debe tener al menos3 caracteres.');
-    S.claves[n] = hashClave(pin);
+    S.claves[n] = hashClave(pin);              // primera vez: se crea y queda en la base
   }
   const rol = rolDe(n);
   S.perfil = {nombre:n, rol};

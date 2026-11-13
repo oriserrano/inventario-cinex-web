@@ -4,13 +4,13 @@
    - Iconos/manifest: caché primero (casi nunca cambian).
    - No toca peticiones a otros orígenes (Supabase, etc.). */
 
-const CACHE = 'inventario-cinex-1794544994';
+const CACHE = 'inventario-cinex-1794578020';
 const SHELL = [
   './',
   './index.html',
   './css/estilos.css',
   './js/app.js',
-  'https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js?v=1794544994',
+  'https://gowtxlbyyjhsuefgyvoa.supabase.co/storage/v1/object/public/panel/js/datos.js?v=1794578020',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
