@@ -58,6 +58,9 @@ S.notas = S.notas||{}; S.nuevos = S.nuevos||{}; S.mod = S.mod||{}; S.mov = S.mov
 S.vtid = S.vtid||{}; S.cmod = S.cmod||{};
 S.nomb = S.nomb||{}; S.puesto = S.puesto||{}; S.orden = S.orden||{};
 S.cinesNuevos = S.cinesNuevos||[];
+S.meta = S.meta||{};            // ideales por cine que tú ajustes (ideal/inst/oper)
+S.ideales = S.ideales||{};      // ideales de runner y ATM por cine
+S.qhIdeales = false;            // ¿el bloque de ideales está abierto en Qué hacer?
 S.borrados = S.borrados||[];
 S.retirados = S.retirados||{};
 S.acc = Array.isArray(S.acc)? S.acc : [];
@@ -364,7 +367,7 @@ function render(){
   if(permitidos.indexOf(vista.tab)<0){          // módulo sin acceso a esa pestaña
     vista.tab = 'resumen'; vista.modo = 'home'; vista.cine = null; scrollObj = 0;
   }
-  if(vista.tab==='quehacer') app.innerHTML = queHacer();
+  if(vista.tab==='quehacer') app.innerHTML = queHacerIdeales() + queHacer();
   else if(vista.tab==='visitas') app.innerHTML = visitas();
   else if(vista.tab==='dashboard') app.innerHTML = dashboard();
   else if(vista.tab==='gestion') app.innerHTML = gestion();
@@ -557,6 +560,112 @@ function datosDashboard(){
   return {t, pctOper, ideal, inst, avance, filasCine, compras, enReparacion, tot,
           totComprar, totReparar, estadosPlan, vivas};
 }
+/* ===== Ideales runner/ATM y estado de TV por cine ===== */
+const TIPOS_TV = [['afichera','Afichera', /aficher/i],
+                  ['videowall','Videowall', /videowall|video\s*wall/i],
+                  ['menuboard','Menú board', /men[úu]\s*board/i],
+                  ['cartelera','Cartelera digital', /cartelera\s*digital/i]];
+function itemsConPatron(c, pat){
+  const out = [];
+  itemsDeCine(c).forEach(({it, area})=>{
+    if(pat.test(area||'') || pat.test(it.n||'')) out.push(it);
+  });
+  return vivos(out).filter(it=> !RETIRADO(it));
+}
+function estadosDe(items){
+  const r = {ok:0, malo:0, falta:0, pend:0, total:0};
+  items.forEach(it=>{
+    estadosItem(it).forEach(e=>{
+      r.total++;
+      if(e==='ok') r.ok++;
+      else if(e==='falta') r.falta++;
+      else if(e==='pend') r.pend++;
+      else r.malo++;
+    });
+  });
+  return r;
+}
+function idealDe(cine, clave){
+  const v = (S.ideales[cine]||{})[clave];
+  return (v===undefined || v===null || v==='') ? null : Number(v);
+}
+function setIdeal(cine, clave, valor){
+  const n = Number(valor);
+  if(!S.ideales) S.ideales = {};
+  const o = S.ideales[cine] = S.ideales[cine] || {};
+  o[clave] = (valor==='' || isNaN(n)) ? null : n;
+  save(); render();
+}
+function tablasIdealesHTML(){
+  const ed = puedeEditarIdeales();
+  const inp = (cod, campo, val)=> ed
+    ? `<input class="ined" type="number" min="0" step="1" inputmode="numeric"
+         value="${val===null? '' : val}" data-ic="${cod}" data-ik="${campo}" aria-label="${campo}">`
+    : (val===null? '—' : val);
+  const filas = DATA.cines.map(c=>{
+    const r = itemsConPatron(c, /^runner$/i);
+    const a = itemsConPatron(c, /^atm$/i);
+    return {c, rn:{ideal:idealDe(c.c,'runner'), real:r.length},
+               at:{ideal:idealDe(c.c,'atm'), real:a.length},
+               tv: TIPOS_TV.map(([k, txt, pat])=>{
+                 const it = itemsConPatron(c, pat);
+                 return {k, txt, n:it.length, e:estadosDe(it)};
+               })};
+  });
+  const saldo = o => o.ideal===null? '<span class="ad">—</span>'
+    : `<b style="color:${(o.ideal-o.real)===0? 'var(--ok)':'var(--mal)'}">${o.ideal-o.real}</b>`;
+  const pill = t => t.n? `<b style="color:${t.e.ok===t.e.total? 'var(--ok)'
+      : (t.e.malo+t.e.falta? 'var(--mal)':'#9a6d00')}">${t.e.ok}/${t.e.total}</b>
+      <span class="ad">${t.n} ${t.n===1?'equipo':'equipos'}</span>` : '<span class="ad">—</span>';
+  const tR = filas.reduce((s,f)=>({i:s.i+(f.rn.ideal||0), r:s.r+f.rn.real}), {i:0,r:0});
+  const tA = filas.reduce((s,f)=>({i:s.i+(f.at.ideal||0), r:s.r+f.at.real}), {i:0,r:0});
+  return `
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Cine</th><th class="num">Ideal runner</th><th class="num">Real</th>
+      <th class="num">Saldo</th><th class="num">Ideal ATM</th><th class="num">Real</th>
+      <th class="num">Saldo</th></tr></thead>
+    <tbody>${filas.map(f=>`<tr><td><b>${f.c.n}</b></td>
+      <td class="num">${inp(f.c.c,'runner',f.rn.ideal)}</td>
+      <td class="num">${f.rn.real}</td><td class="num">${saldo(f.rn)}</td>
+      <td class="num">${inp(f.c.c,'atm',f.at.ideal)}</td>
+      <td class="num">${f.at.real}</td><td class="num">${saldo(f.at)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td><b>Total</b></td><td class="num"><b>${tR.i||'—'}</b></td>
+      <td class="num"><b>${tR.r}</b></td><td class="num"><b>${tR.i? tR.i-tR.r : '—'}</b></td>
+      <td class="num"><b>${tA.i||'—'}</b></td><td class="num"><b>${tA.r}</b></td>
+      <td class="num"><b>${tA.i? tA.i-tA.r : '—'}</b></td></tr></tfoot>
+  </table></div>
+
+  <div class="ad" style="margin:16px 0 7px;font-weight:800;color:var(--ink)">Estado de TV por tipo
+    <span style="font-weight:400;color:var(--mut)"> — operativos/total · se cuenta solo del inventario</span></div>
+  <div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Cine</th>${TIPOS_TV.map(([,txt])=>`<th class="num">${txt}</th>`).join('')}</tr></thead>
+    <tbody>${filas.map(f=>`<tr><td><b>${f.c.n}</b></td>${
+      f.tv.map(t=>`<td class="num">${pill(t)}</td>`).join('')}</tr>`).join('')}</tbody>
+    <tfoot><tr><td><b>Total</b></td>${TIPOS_TV.map((_,i)=>{
+      const n = filas.reduce((s,f)=> s+f.tv[i].n, 0);
+      const ok = filas.reduce((s,f)=> s+f.tv[i].e.ok, 0);
+      return `<td class="num"><b>${n? ok+'/'+n : '—'}</b></td>`; }).join('')}</tr></tfoot>
+  </table></div>`;
+}
+function queHacerIdeales(){
+  return `<details class="grupo card secc" data-qhides ${vista.qhIdeales? 'open':''}
+      style="margin-bottom:12px">
+    <summary style="cursor:pointer;padding:13px 15px;display:flex;gap:10px;align-items:center;list-style:none">
+      <b style="font-size:14.5px">Ideales runner/ATM y estado de TV</b>
+      <span class="ad" style="margin-left:auto">por cine</span>
+      <span class="gcar" aria-hidden="true">▾</span></summary>
+    <div style="padding:0 14px 14px">${tablasIdealesHTML()}</div>
+  </details>`;
+}
+function histMovimiento(){
+  const f = Object.keys(S.hist||{}).sort();
+  if(f.length<2) return null;
+  const a = S.hist[f[f.length-2]], b = S.hist[f[f.length-1]];
+  return {a:f[f.length-2], b:f[f.length-1],
+    ok:(b.ok||0)-(a.ok||0), falta:(b.falta||0)-(a.falta||0),
+    malo:((b.malo||0)+(b.rep||0))-((a.malo||0)+(a.rep||0)),
+    pend:(b.pend||0)-(a.pend||0)};
+}
 function dashboard(){
   const d = datosDashboard();
   const hoy = new Date().toLocaleDateString('es-VE', {day:'2-digit', month:'long', year:'numeric'});
@@ -580,6 +689,51 @@ function dashboard(){
     <div><b>${d.totComprar}</b><span>Piezas a comprar</span></div>
     <div><b>${d.totReparar}</b><span>Piezas a reparar</span></div>
   </div>
+
+  <div class="card secc"><div class="hd"><h2>Espacios disponibles por cine</h2>
+    <span class="ad">${puedeEditarIdeales()
+      ? 'ideal vs instalado · toca Ideal, Instalado u Operativo para editarlo'
+      : 'base v3 · ideal vs instalado'}</span></div><div class="bd">
+    ${(()=>{ const meta = DATA.meta || {};
+      const filas = DATA.cines.map(c=>({c, m:meta[c.c]||{}}))
+        .filter(x=> x.m.ideal!==null && x.m.ideal!==undefined)
+        .sort((a,b)=> (b.m.disp||0)-(a.m.disp||0));
+      if(!filas.length) return '<div class="empty-note">Todavía no hay ideales cargados.</div>';
+      const ed = puedeEditarIdeales();
+      const inp = (cod, campo, val)=> ed
+        ? `<input class="ined" type="number" min="0" step="1" inputmode="numeric"
+             value="${(val===null||val===undefined)?'':val}"
+             data-mc="${cod}" data-mk="${campo}" aria-label="${campo}">`
+        : ((val===null||val===undefined)? '—' : val);
+      const tot = filas.reduce((s,x)=>({ideal:s.ideal+(Number(x.m.ideal)||0),
+        inst:s.inst+(Number(x.m.inst)||0), oper:s.oper+(Number(x.m.oper)||0),
+        disp:s.disp+(Number(x.m.disp)||0)}), {ideal:0,inst:0,oper:0,disp:0});
+      const sinMeta = DATA.cines.filter(c=> !meta[c.c] || meta[c.c].ideal===null
+        || meta[c.c].ideal===undefined).map(c=>c.n);
+      return `<div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Cine</th><th class="num">Ideal</th><th class="num">Instalado</th>
+          <th class="num">Operativo</th><th class="num">Disponibles</th></tr></thead>
+        <tbody>${filas.map(x=>`<tr><td><b>${x.c.n}</b></td>
+          <td class="num">${inp(x.c.c,'ideal',x.m.ideal)}</td>
+          <td class="num">${inp(x.c.c,'inst',x.m.inst)}</td>
+          <td class="num">${inp(x.c.c,'oper',x.m.oper)}</td>
+          <td class="num"><b style="color:${x.m.disp? 'var(--mal)':'var(--ok)'}">${
+            (x.m.disp===null||x.m.disp===undefined)? '—' : x.m.disp}</b></td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr><td><b>Total</b></td><td class="num"><b>${tot.ideal}</b></td>
+          <td class="num"><b>${tot.inst}</b></td><td class="num"><b>${tot.oper}</b></td>
+          <td class="num"><b>${tot.disp}</b></td></tr></tfoot>
+      </table></div>
+      <div class="ad" style="margin-top:9px">Fuente: POS-Complejos-v3 (29/10/2025) ·
+        Disponibles = Ideal − Instalado${
+        sinMeta.length? ' · sin dato en esa base: '+sinMeta.join(', ') : ''}</div>`; })()}
+    </div></div>
+
+  <div class="card secc"><div class="hd"><h2>Ideales runner/ATM y estado de TV</h2>
+    <span class="ad">${puedeEditarIdeales()
+      ? 'toca el ideal para editarlo · lo real sale del inventario'
+      : 'del inventario por cine'}</span></div>
+    <div class="bd">${tablasIdealesHTML()}</div></div>
 
   <div class="card secc"><div class="hd"><h2>Lo que falta por cine</h2>
     <span class="ad">plan pendiente · mayor inversión primero</span></div><div class="bd">
@@ -823,6 +977,22 @@ function home(){
     ${sparkline(S.hist)}
   </div></div>
 
+  ${(()=>{ const mov = histMovimiento(); if(!mov) return `
+    <div class="card secc"><div class="hd"><h2>¿Cómo se movieron los números?</h2></div><div class="bd">
+      <div class="empty-note">Todavía no hay un registro anterior con el que comparar:
+      los contadores se guardan cada día que usas el panel.</div></div></div>`;
+    const pila = (txt, d, subeBien)=> `<span class="delta ${
+      d===0? 'flat' : ((d>0)===!!subeBien? 'up':'down')}">${
+      d>0? '▲ +'+d : d<0? '▼ '+d : '• sin cambio'} ${txt}</span>`;
+    return `<div class="card secc"><div class="hd"><h2>¿Cómo se movieron los números?</h2>
+      <span class="ad">${mov.a} → ${mov.b}</span></div><div class="bd">
+      <div class="legend" style="margin-top:0">
+        ${pila('operativos', mov.ok, true)}
+        ${pila('faltantes', mov.falta, false)}
+        ${pila('dañados/reparación', mov.malo, false)}
+        ${pila('sin revisar', mov.pend, false)}
+      </div></div></div>`; })()}
+
   ${veMeta()? `<div class="card secc"><div class="hd"><h2>Meta: dejar cada cine al100%</h2>
     ${adminUsuarios()? '<button id="nuevo-cine">＋ Nuevo cine</button>' : ''}</div>
     <div class="bd">
@@ -1032,9 +1202,11 @@ async function borrarEquipo(){
   const dBor = dondeEsta(mEd) || {c:{c:''}, area:''};
   S.mov.push({ts:new Date().toISOString(), id:mEd, cine:dBor.c.c||'', area:dBor.area||'',
               eq:nombreDe(it), comp:'Borrado de equipo', de:'Activo', a:'Borrado',
-              causa:'', rev:'pendiente', autor:AUTOR(), tipoMov:'borrado', ref:mEd});
+              causa:'', rev: revDe(esCentroDeDatos(mEd)), autor:AUTOR(), tipoMov:'borrado', ref:mEd});
   save(); cerrarEdicion(); render();
-  flash('Equipo borrado ✓ · va a revisión del coordinador');
+  flash(revDe(esCentroDeDatos(mEd))==='pendiente'
+    ? 'Equipo borrado ✓ · va a revisión del coordinador'
+    : 'Equipo borrado ✓ · pasó directo');
 }
 async function retirarEquipo(){
   const it = findItem(mEd); if(!it) return;
@@ -1058,10 +1230,11 @@ async function retirarEquipo(){
   const dRet = dondeEsta(mEd) || {c:{c:''}, area:''};
   S.mov.push({ts:new Date().toISOString(), id:mEd, cine:dRet.c.c||'', area:dRet.area||'',
               eq:nombreDe(it), comp:'Retiro de equipo', de:'Activo', a:'Retirado',
-              causa:r.motivo.trim(), rev:'pendiente', autor:AUTOR(),
+              causa:r.motivo.trim(), rev: revDe(esCentroDeDatos(mEd)), autor:AUTOR(),
               tipoMov:'retiro', ref:mEd});
-  save(); cerrarEdicion(); render();
-  flash('Equipo retirado ✓ '+r.motivo.trim());
+  save(); cerrarEquipo(); render();
+  flash('Equipo retirado ✓ '+r.motivo.trim()+(
+    revDe(esCentroDeDatos(mEd))==='pendiente' ? ' · va a revisión del coordinador' : ''));
 }
 function guardarEdicion(){
   const it = findItem(mEd); if(!it) return;
@@ -1475,10 +1648,11 @@ function crearEquipo(){
   (S.nuevos[c.c] = S.nuevos[c.c]||[]).push(it);
   S.mov.push({ts:new Date().toISOString(), id:it.id, cine:c.c, area:mEq.area,
               eq:nombre, comp:'Alta de equipo', de:'—', a:'Nuevo equipo',
-              causa:'', rev:'pendiente', autor:AUTOR(), tipoMov:'alta', ref:it.id});
+              causa:'', rev: revDe(esCentroDeDatos(it.id)), autor:AUTOR(), tipoMov:'alta', ref:it.id});
   save(); cerrarEquipo(); render();
+  const revAlta = revDe(esCentroDeDatos(it.id));
   flash(nombre+' agregado'+(comps.length? ' con '+comps.length+' componentes':'')+
-        ' ✓ · va a revisión del coordinador');
+        ' ✓'+(revAlta==='pendiente' ? ' · va a revisión del coordinador' : ' · pasó directo'));
 }
 
 /* ================= PLAN DE TRABAJO (QUÉ HACER) ================= */
@@ -2068,35 +2242,7 @@ function gestion(){
               x.m.costo? ' · '+fmt(x.m.costo) : ''}</span></span>
           <button data-cine="${x.c.c}">Ver</button></div>`).join('')}</div></div>
 
-      ${(()=>{ const meta = DATA.meta || {};
-        const filas = DATA.cines.map(c=>({c, m:meta[c.c]}))
-          .filter(x=> x.m && x.m.ideal!==null && x.m.ideal!==undefined)
-          .sort((a,b)=> (b.m.disp||0)-(a.m.disp||0));
-        if(!filas.length) return '';
-        const tot = filas.reduce((s,x)=>({ideal:s.ideal+(x.m.ideal||0),
-          inst:s.inst+(x.m.inst||0), oper:s.oper+(x.m.oper||0),
-          disp:s.disp+(x.m.disp||0)}), {ideal:0,inst:0,oper:0,disp:0});
-        const sinMeta = DATA.cines.filter(c=> !meta[c.c] || meta[c.c].ideal===null
-          || meta[c.c].ideal===undefined).map(c=>c.n);
-        return `<div class="card secc"><div class="hd"><h2>Espacios disponibles</h2>
-          <span class="ad">base v3 · ideal vs instalado</span></div><div class="bd">
-          <div class="tbl-wrap"><table class="tbl">
-            <thead><tr><th>Cine</th><th class="num">Ideal</th><th class="num">Instalado</th>
-              <th class="num">Operativo</th><th class="num">Disponibles</th></tr></thead>
-            <tbody>${filas.map(x=>`<tr><td><b>${x.c.n}</b></td>
-              <td class="num">${x.m.ideal}</td><td class="num">${x.m.inst}</td>
-              <td class="num">${x.m.oper}</td>
-              <td class="num"><b style="color:${x.m.disp? 'var(--mal)':'var(--ok)'}">${x.m.disp}</b></td>
-            </tr>`).join('')}</tbody>
-            <tfoot><tr><td><b>Total</b></td><td class="num">${tot.ideal}</td>
-              <td class="num">${tot.inst}</td><td class="num">${tot.oper}</td>
-              <td class="num"><b>${tot.disp}</b></td></tr></tfoot>
-          </table></div>
-          <div class="ad" style="margin-top:9px">Fuente: POS-Complejos-v3 (29/10/2025)${
-            sinMeta.length? ' · sin dato en esa base: '+sinMeta.join(', ') : ''}</div>
-        </div></div>`; })()}
-
-      <div class="rowbtn">
+        <div class="rowbtn">
         <button class="btn-p" data-gsec="exportar">Exportar resultados</button>
         <button data-gsec="auditoria">Auditoría</button>
         <button data-gsec="usuarios">Usuarios</button>
@@ -2289,8 +2435,14 @@ function abrirModal(id, idx){
   const ficha = document.getElementById('m-ficha');
   if(ficha) ficha.innerHTML = fichaHTML(id, idx);
   const lbl = document.getElementById('m-rev').closest('label');
-  lbl.hidden = !!enCD;                       // Centro de datos: pasa directo
-  document.getElementById('m-rev').checked = !enCD;
+  const pasaPorCoor = soloSoporte() && !enCD;   // solo Soporte manda a Coordinación
+  lbl.hidden = !pasaPorCoor;
+  const chkRev = document.getElementById('m-rev');
+  chkRev.checked = pasaPorCoor;
+  if(lbl.lastChild && lbl.lastChild.nodeType === 3)
+    lbl.lastChild.textContent = pasaPorCoor
+      ? ' Enviar a revisión del coordinador · obligatorio para Soporte'
+      : ' Enviar a revisión del coordinador';
   actualizarFalloModal();
   document.getElementById('modal').classList.add('on');
 }
@@ -2299,7 +2451,8 @@ function confirmarModal(){
   if(!mPend) return;
   const det = document.getElementById('m-det').value.trim();
   const enCD = esCentroDeDatos(mPend.id);
-  const rev = (enCD || !document.getElementById('m-rev').checked) ? 'ok' : 'pendiente';
+  const chkRev2 = document.getElementById('m-rev');
+  const rev = (enCD || !soloSoporte() || !chkRev2.checked) ? 'ok' : 'pendiente';
   const causa = [mCausa, det].filter(Boolean).join(' — ');
   const accSel = document.querySelector('[data-accion].on');
   const tipo = (mPend.nuevo==='falta') ? 'comprar'      // falta → se compra
@@ -2576,6 +2729,63 @@ function tabsPermitidos(){
   return base.concat(['quehacer','gestion','dashboard']);      // dashboard: solo gerencia
 }
 function veMeta(){ return ROL()==='gerencia' || ROL()==='coordinacion'; }
+/* Solo Soporte manda sus cambios a Coordinación: Gerencia, Coordinación,
+   Infraestructura y Centro de datos pasan directo. */
+function revDe(enCD){
+  if(enCD) return 'ok';
+  return ROL()==='soporte' ? 'pendiente' : 'ok';
+}
+function soloSoporte(){ return ROL()==='soporte'; }
+function puedeEditarIdeales(){ return !!S.perfil && ROL()!=='soporte'; }
+/* Lo que tú ajustes en ideales se guarda en S.meta (navegador + nube) y se
+   aplica encima de DATA.meta (base v3) en cada arranque. */
+function aplicarMeta(){
+  if(!S.meta) return;
+  DATA.meta = DATA.meta || {};
+  Object.keys(S.meta).forEach(k=>{
+    DATA.meta[k] = Object.assign({}, DATA.meta[k] || {}, S.meta[k]);
+  });
+}
+function editarMeta(cine, campo, valor){
+  const n = Number(valor);
+  if(!S.meta) S.meta = {};
+  const m = S.meta[cine] = S.meta[cine] || {};
+  m[campo] = (valor === '' || isNaN(n)) ? null : n;
+  DATA.meta = DATA.meta || {};
+  const d = DATA.meta[cine] = Object.assign({}, DATA.meta[cine] || {}, m);
+  if(d.ideal !== null && d.ideal !== undefined && d.inst !== null && d.inst !== undefined)
+    d.disp = Math.max(0, Number(d.ideal) - Number(d.inst));
+  else d.disp = m.disp;
+  m.disp = d.disp;
+  save(); render();
+}
+
+/* ---------- Barra flotante: aparece al bajar con el scroll ---------- */
+(function barraScroll(){
+  const el = document.getElementById('sbar');
+  if(!el) return;
+  const revisar = ()=>{
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    el.classList.toggle('on', y > 240);
+  };
+  addEventListener('scroll', revisar, {passive:true});
+  addEventListener('resize', revisar);
+  revisar();
+})();
+
+/* Guardar ideales cuando sales de la celda (Enter o al quitar el foco) */
+document.addEventListener('change', e=>{
+  const t = e.target; if(!t || !t.closest) return;
+  const mc = t.closest('[data-mc]');
+  if(mc){ if(puedeEditarIdeales()) editarMeta(mc.dataset.mc, mc.dataset.mk, mc.value); return; }
+  const ic = t.closest('[data-ic]');
+  if(ic){ if(puedeEditarIdeales()) setIdeal(ic.dataset.ic, ic.dataset.ik, ic.value); return; }
+});
+/* Recordar si el bloque de ideales está abierto en Qué hacer */
+document.addEventListener('toggle', e=>{
+  const el = e.target;
+  if(el && el.matches && el.matches('[data-qhides]')) vista.qhIdeales = !!el.open;
+}, true);
 
 /* ================= ACCESO: pantalla de entrada ================= */
 let accesoSel = null;
@@ -3011,6 +3221,18 @@ document.addEventListener('click', async ev=>{
   if(cine){ scrollObj=0; vista={...vista, modo:'cine', cine:cine.dataset.cine,
     filtro:'all', areaF:'todas'}; render(); return; }
   if(t.id==='volver'){ scrollObj=0; vista={...vista, modo:'home', cine:null, filtro:'all'}; render(); return; }
+  if(t.id==='sbar-top'){ try{ window.scrollTo({top:0, behavior:'smooth'}); }catch(e){ window.scrollTo(0,0); } return; }
+  if(t.id==='sbar-reset'){
+    vista.gf=null; vista.gfTodo=false; vista.filtro='all';
+    vista.planF='todo'; vista.planC='todos';
+    render(); flash('Filtros restablecidos ✓'); return;
+  }
+  if(t.id==='sbar-back'){
+    if(vista.modo==='cine'){ scrollObj=0; vista={...vista, modo:'home', cine:null, filtro:'all'}; render(); }
+    else if(vista.tab && vista.tab!=='resumen'){ scrollObj=0; vista.tab='resumen'; render(); }
+    else { try{ window.scrollTo({top:0, behavior:'smooth'}); }catch(e){ window.scrollTo(0,0); } }
+    return;
+  }
 
   if(t.id==='btn-entrar-bloq'){ abrirPerfil(); return; }
 
@@ -3543,6 +3765,7 @@ if(S.cinesNuevos.length){
 }
 aplicarComps();
 aplicarBorradosArea();
+aplicarMeta();
 ensureIds();
 sincronizarPlan();          // crea/completa el plan DESPUÉS de asignar ids
 document.getElementById('subtop').textContent =
