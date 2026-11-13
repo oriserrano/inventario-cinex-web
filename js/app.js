@@ -2466,6 +2466,7 @@ async function sbSubir(){
     }catch(e){ /* sin red en el paso previo: se sube igual */ }
     const iso = new Date().toISOString();
     const copia = JSON.parse(JSON.stringify(S));
+    delete copia.perfil;              // el perfil es de este dispositivo: nunca viaja a la nube
     copia._sync = Date.parse(iso);
     const cuerpo = JSON.stringify({data: copia, actualizado: iso,
       actualizado_por: (S.perfil && S.perfil.nombre) || 'sin perfil'});
