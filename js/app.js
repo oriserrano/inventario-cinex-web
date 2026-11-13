@@ -1424,7 +1424,23 @@ function repararAcc(){
   return muertos.length;
 }
 
+/* Montos que se guardaron con la tabla de precios ANTERIOR: si todavía traen
+   ese número exacto, se actualizan al precio oficial nuevo (si lo hubo). */
+const PRECIOS_ANTERIORES = {'Terminal POS':800, 'CPU':800, 'Impresora fiscal':1017,
+  'Lector de barras':45, 'Escáner':45, 'Gaveta':100, 'Monitor secundario':120,
+  'Estación completa':2082};
+function actualizarMontosViejos(){
+  let c = 0;
+  (S.acc||[]).forEach(a=>{
+    const antes = PRECIOS_ANTERIORES[a.comp];
+    if(antes===undefined || Number(a.monto)!==antes) return;
+    const p = precioDe(a.comp);
+    if(p!=='' && p!==undefined && Number(p)!==Number(a.monto)){ a.monto = p; c++; }
+  });
+  return c;
+}
 function sincronizarPlan(){
+  actualizarMontosViejos();
   const quitados = repararAcc();
   let n = quitados;      // si solo se deduplicó, hay que guardar igual
   // montos vacíos se completan con el catálogo (los escritos a mano no se tocan)
