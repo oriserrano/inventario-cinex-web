@@ -696,7 +696,6 @@ function dashboard(){
       : 'base v3 · ideal vs instalado'}</span></div><div class="bd">
     ${(()=>{ const meta = DATA.meta || {};
       const filas = DATA.cines.map(c=>({c, m:meta[c.c]||{}}))
-        .filter(x=> x.m.ideal!==null && x.m.ideal!==undefined)
         .sort((a,b)=> (b.m.disp||0)-(a.m.disp||0));
       if(!filas.length) return '<div class="empty-note">Todavía no hay ideales cargados.</div>';
       const ed = puedeEditarIdeales();
@@ -726,7 +725,8 @@ function dashboard(){
       </table></div>
       <div class="ad" style="margin-top:9px">Fuente: POS-Complejos-v3 (29/10/2025) ·
         Disponibles = Ideal − Instalado${
-        sinMeta.length? ' · sin dato en esa base: '+sinMeta.join(', ') : ''}</div>`; })()}
+        sinMeta.length? ' · sin datos todavía: '+sinMeta.join(', ')+
+          ' (toca Ideal/Instalado/Operativo para cargarlos)' : ''}</div>`; })()}
     </div></div>
 
   <div class="card secc"><div class="hd"><h2>Ideales runner/ATM y estado de TV</h2>
@@ -1009,6 +1009,8 @@ function home(){
         : '<div class="empty-note">Sin alertas: todo operativo y revisado.</div>'}
     </div></div>
 
+  ${adminUsuarios()? `<div class="rowbtn" style="margin:12px 0 2px">
+    <button data-nuevocine>＋ Nuevo cine</button></div>`:''}
   <div class="legend">
     <span><i class="sw" style="background:var(--ok)"></i>Operativo</span>
     <span><i class="sw" style="background:var(--rep)"></i>En reparación</span>
@@ -2607,7 +2609,9 @@ function fusionarRemoto(rem){
   Object.keys(r).forEach(k=>{
     if(k==='mov' || k==='perfil') return;
     if(k==='meta' || k==='ideales'){ S[k] = Object.assign({}, r[k]||{}, S[k]||{}); return; }
+    if(k==='cinesNuevos'){ unirCinesRemoto(r.cinesNuevos); return; }
     if(k==='nuevos'){ unirNuevos(r.nuevos); return; }
+    if(k==='cinesNuevos'){ unirCinesRemoto(r.cinesNuevos); return; }
     if(k==='comps'){ unirCompsRemoto(r.comps); return; }
     if(k==='est'){ unirEstRemoto(r.est); return; }
     S[k] = r[k];
@@ -2651,7 +2655,7 @@ function fusionarSeguro(rem){
   const propios = ['mov','perfil','claves','obsoletos','areaNombres','comps','est','nuevos',
                    'visitas','retirados','borrados','areaBorr',
                    // (comps/est/nuevos ya se unieron arriba, no se pisan aquí)
-                   'meta','ideales',
+                   'meta','ideales','cinesNuevos',
                    'cine','tab','gseccion','planAbiertos','planLimit','qhIdeales',
                    '_modif','_sync'];
   Object.keys(r).forEach(k=>{ if(propios.indexOf(k)<0) S[k] = r[k]; });
@@ -2850,6 +2854,15 @@ function unirEstRemoto(re){                        // estados: por equipo y por 
     else out[id] = l;
   });
   S.est = out;
+}
+function unirCinesRemoto(rc){
+  if(!Array.isArray(rc)) return;
+  const v = new Set((S.cinesNuevos||[]).map(x=> x && x.c));
+  S.cinesNuevos = S.cinesNuevos || [];
+  rc.forEach(x=>{ if(x && x.c && !v.has(x.c)){
+    v.add(x.c); S.cinesNuevos.push(x);
+    if(!DATA.cines.some(d=> d.c===x.c)) DATA.cines.push(x);
+  }});
 }
 function aplicarMeta(){
   if(!S.meta) return;
@@ -3113,7 +3126,7 @@ document.addEventListener('click', async ev=>{
     save(); render(); flash('Acción agregada ✓');
     return;
   }
-  if(t.id==='nuevo-cine'){
+  if(t.id==='nuevo-cine' || t.closest('[data-nuevocine]')){
     if(!adminUsuarios()){ flash('Solo Coordinación o Gerencia agregan cines'); return; }
     const r = await pedir({
       titulo:'Nuevo cine o local',
