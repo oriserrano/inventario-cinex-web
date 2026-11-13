@@ -3019,6 +3019,7 @@ document.addEventListener('click', async ev=>{
     if(!rv) return;
     S.areaBorr = Array.isArray(S.areaBorr)? S.areaBorr : [];
     if(S.areaBorr.indexOf(clave)<0) S.areaBorr.push(clave);
+    aplicarBorradosArea();          // se quita de DATA ahora mismo
     save(); render(); flash('Área borrada ✓');
     return;
   }
