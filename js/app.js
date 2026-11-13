@@ -1336,9 +1336,28 @@ function crearEquipo(){
 }
 
 /* ================= PLAN DE TRABAJO (QUÉ HACER) ================= */
-const PRECIOS = {'Impresora fiscal':1017, 'Lector de barras':45, 'Gaveta':100,
-  'Monitor secundario':120, 'Terminal POS':800};
-const PRECIO_ESTACION = 800+1017+100+45+120;      // CPU + impresora + gaveta + escáner + monitor
+/* Precios oficiales — tabla de cotizaciones enviada por Oriana,
+   columna "Precio unitario" (se mantiene lo que ya estaba si esta no lo trae). */
+const PRECIOS = {
+  'Terminal POS': 320,            // MiniPC i58va Gen, 8GB DDR4,128 M.2
+  'CPU': 320,
+  'Monitor principal': 290,       // Pantalla Táctil15.6"
+  'Monitor secundario': 48,       // Monitor18,5" Vista Cliente
+  'Impresora fiscal': 1269.5,     // HKA80A + Dispositivo Fiscal (va incluido)
+  'Dispositivo fiscal': '',       // va dentro de la impresora fiscal
+  'Lector de barras': 48,         // Lector QR1D/2D Domo
+  'Escáner': 48,
+  'Gaveta': 53,                   // Gavetas de Dinero
+  'UPS/Regulador': 65,            // UPS500va (taquillas)
+  'Regulador de TV': 22,          // Regulador de Voltaje (TV)
+  'Pinpad': '',                   // sigue sin cotizar
+  'VTID': '',
+  'Punto de red': ''
+};
+// Estación completa = CPU + impresora + gaveta + escáner + monitor
+const PRECIO_ESTACION = (PRECIOS['Terminal POS']||0) + (PRECIOS['Impresora fiscal']||0)
+  + (PRECIOS['Gaveta']||0) + (PRECIOS['Lector de barras']||0)
+  + (PRECIOS['Monitor secundario']||0);
 const TIPO_EST = {malo:'reparar', rep:'reparar', falta:'comprar'};
 const EST_PLAN = [['pendiente','Pendiente'],['cotizado','Cotizado'],
                   ['aprobado','Aprobado por gerencia'],['comprado','Comprado'],
