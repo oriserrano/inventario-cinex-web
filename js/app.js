@@ -2541,6 +2541,9 @@ function fusionarRemoto(rem){
   Object.keys(r).forEach(k=>{
     if(k==='mov' || k==='perfil') return;
     if(k==='meta' || k==='ideales'){ S[k] = Object.assign({}, r[k]||{}, S[k]||{}); return; }
+    if(k==='nuevos'){ unirNuevos(r.nuevos); return; }
+    if(k==='comps'){ unirCompsRemoto(r.comps); return; }
+    if(k==='est'){ unirEstRemoto(r.est); return; }
     S[k] = r[k];
   });
   S._sync = remTs;
@@ -2558,22 +2561,14 @@ function fusionarSeguro(rem){
     if(!vistos.has(k)){ S.mov.push(m); vistos.add(k); } });
   S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
   // mapas por clave (claves, obsoletos, componentes, estados, renombres de área)
-  ['claves','obsoletos','areaNombres','comps','est','meta','ideales'].forEach(k=>{
+  unirCompsRemoto(r.comps);          // componentes: unión por nombre (lo local manda)
+  unirEstRemoto(r.est);              // estados: por equipo e índice (lo local manda)
+  ['claves','obsoletos','areaNombres','meta','ideales'].forEach(k=>{
     if(r[k] && typeof r[k]==='object' && !Array.isArray(r[k]))
       S[k] = Object.assign({}, r[k], S[k] || {});   // lo local pisa; lo que falta llega
   });
-  // equipos agregados a mano: unión por id dentro de cada cine
-  if(r.nuevos && typeof r.nuevos==='object'){
-    const sal = {}, cines = new Set([...Object.keys(S.nuevos||{}), ...Object.keys(r.nuevos)]);
-    cines.forEach(c=>{
-      const lista = [], v = new Set();
-      [...(r.nuevos[c]||[]), ...((S.nuevos&&S.nuevos[c])||[])].forEach(x=>{
-        if(x && x.id && !v.has(x.id)){ v.add(x.id); lista.push(x); }
-      });
-      if(lista.length) sal[c] = lista;
-    });
-    S.nuevos = sal;
-  }
+  // equipos agregados a mano: unión por id dentro de cada cine (lo local manda)
+  unirNuevos(r.nuevos);
   // listas simples (visitas, retirados, borrados, áreas borradas)
   ['visitas','retirados','borrados','areaBorr'].forEach(k=>{
     if(Array.isArray(r[k])){
@@ -2586,6 +2581,7 @@ function fusionarSeguro(rem){
   // el resto (meta, hist…): lo más reciente manda. El perfil NUNCA viaja de la nube
   const propios = ['mov','perfil','claves','obsoletos','areaNombres','comps','est','nuevos',
                    'visitas','retirados','borrados','areaBorr',
+                   // (comps/est/nuevos ya se unieron arriba, no se pisan aquí)
                    'meta','ideales',
                    'cine','tab','gseccion','planAbiertos','planLimit','qhIdeales',
                    '_modif','_sync'];
@@ -2746,6 +2742,46 @@ function soloSoporte(){ return ROL()==='soporte'; }
 function puedeEditarIdeales(){ return !!S.perfil && ROL()!=='soporte'; }
 /* Lo que tú ajustes en ideales se guarda en S.meta (navegador + nube) y se
    aplica encima de DATA.meta (base v3) en cada arranque. */
+/* Unión de listas: lo local manda y lo que falta llega de la nube. */
+function unirNuevos(rn){
+  if(!rn || typeof rn!=='object') return;
+  const sal = {}, cines = new Set([...Object.keys(S.nuevos||{}), ...Object.keys(rn)]);
+  cines.forEach(c=>{
+    const lista = [], v = new Set();
+    [...((S.nuevos&&S.nuevos[c])||[]), ...(rn[c]||[])].forEach(x=>{   // local primero → gana el local
+      if(x && x.id && !v.has(x.id)){ v.add(x.id); lista.push(x); }
+    });
+    if(lista.length) sal[c] = lista;
+  });
+  S.nuevos = sal;
+}
+function unirCompsArr(a, b){                       // componentes: unión por nombre, orden local
+  if(!Array.isArray(a)) return Array.isArray(b)? b.slice() : a;
+  if(!Array.isArray(b)) return a;
+  const v = new Set(a.map(c=> String(c.n||'').toLowerCase()));
+  const out = a.slice();
+  b.forEach(c=>{ const k = String(c.n||'').toLowerCase();
+    if(!v.has(k)){ v.add(k); out.push(c); } });
+  return out;
+}
+function unirCompsRemoto(rc){
+  if(!rc || typeof rc!=='object') return;
+  S.comps = S.comps || {};
+  new Set([...Object.keys(S.comps), ...Object.keys(rc)]).forEach(id=>{
+    S.comps[id] = unirCompsArr(S.comps[id], rc[id]);
+  });
+}
+function unirEstRemoto(re){                        // estados: por equipo y por índice, lo local pisa
+  if(!re || typeof re!=='object') return;
+  const out = Object.assign({}, re);
+  Object.keys(S.est||{}).forEach(id=>{
+    const l = S.est[id], r2 = re[id];
+    if(l && r2 && typeof l==='object' && typeof r2==='object' && !Array.isArray(l) && !Array.isArray(r2))
+      out[id] = Object.assign({}, r2, l);
+    else out[id] = l;
+  });
+  S.est = out;
+}
 function aplicarMeta(){
   if(!S.meta) return;
   DATA.meta = DATA.meta || {};
