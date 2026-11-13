@@ -467,6 +467,13 @@ button.disco{min-height:0}
 .hd h2 .mini.danger:hover{border-color:var(--mal);color:var(--mal);background:#fff4f4}
 .badge.obs{background:#5b6570;color:#fff}
 .badge.obs::before{content:'♻ '}
+/* Obsolescencia por componente */
+.obsc{font-style:normal;font-weight:800;color:#5b6570;letter-spacing:-1px}
+.mnm .obsc{margin-left:3px}
+.chipcomp .obsc{margin-left:2px;font-size:12px}
+#m-obsoleto{border-color:#c9d4de;color:#5b6570}
+#m-obsoleto.on{background:#5b6570;color:#fff;border-color:#5b6570}
+#m-obsoleto[hidden]{display:none !important}
 .filtro-on{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:11px 13px;
   border:1.5px solid var(--brand);background:#eef5fd;border-radius:11px;
   font-size:13.5px;margin-bottom:10px}

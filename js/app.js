@@ -1084,7 +1084,10 @@ function abrirEdicion(id){
   const br = document.getElementById('ed-retirar');
   br.textContent = RETIRADO(it)? 'Reincorporar equipo' : 'Retirar equipo';
   const bo = document.getElementById('ed-obsoleto');
-  if(bo) bo.textContent = esObsoleto(id)? 'Dejar de ser obsoleto' : 'Marcar como obsoleto';
+  if(bo){
+    bo.hidden = !!it.c;                     // con componentes: se marca componente por componente
+    bo.textContent = esObsoleto(id)? 'Dejar de ser obsoleto' : 'Marcar como obsoleto';
+  }
   pintarCompsEd();
   actualizarPos();
   document.getElementById('modal-ed').classList.add('on');
@@ -1108,9 +1111,10 @@ function pintarCompsEd(){
   box.innerHTML = it.c.map((ch,i)=>{
     const est = (S.est[it.id]||{})[i] || 'falta';
     const crit = ES_CRITICO(ch.n);
+    const mar = esObsoletoComp(it.id, i);
     return `<button type="button" class="chipcomp${crit?' crit':''}" data-qcomp="${i}"
       title="${crit?'Afecta la facturación':'Quitar componente'}">
-      <span>${ETIQ[ch.n]||ch.n}</span><span class="pill ${est}">${CORTOC[est]}</span><b aria-hidden="true">✕</b></button>`;
+      <span>${ETIQ[ch.n]||ch.n}${mar? '<i class="obsc">♻</i>':''}</span><span class="pill ${est}">${CORTOC[est]}</span><b aria-hidden="true">✕</b></button>`;
   }).join('');
 }
 function quitarComponente(ci){
@@ -1377,7 +1381,9 @@ function itemHtml(it){
           ${crit? 'title="Componente crítico: afecta la facturación"' : ''}>
         <div class="mhd">
           <span class="icow">${icono(esCpu? 'cpu' : (ETIQ[nombre]||nombre))}</span>
-          <span class="mnm">${ETIQ[nombre]||nombre}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}</span>
+          <span class="mnm">${ETIQ[nombre]||nombre}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}${
+            esObsoletoComp(it.id, ci)? `<i class="obsc" title="Componente obsoleto${
+              (S.obsoletos[it.id+'#c'+ci].nota? ': '+S.obsoletos[it.id+'#c'+ci].nota : '')}">♻</i>`:''}</span>
           <span class="pill ${est}">${CORTOC[est]}</span>
         </div>
         ${nombre==='VTID' && tienePinpad ? '' :
@@ -2369,6 +2375,57 @@ function aplicarBorradosArea(){
   });
 }
 function esObsoleto(id){ return !!(S.obsoletos && S.obsoletos[id]); }
+/* La obsolescencia es POR COMPONENTE: la clave es id#cN (y para equipo simple, id) */
+function esObsoletoComp(id, idx){ return !!(S.obsoletos && S.obsoletos[id+'#c'+idx]); }
+function esObsoletoClave(clave){ return !!(S.obsoletos && S.obsoletos[clave]); }
+function claveObsDe(id, idx){
+  const it = findItem(id);
+  const esSimple = (idx==='e' || idx===undefined || idx===null || !it || !it.c);
+  return esSimple? id : id+'#c'+idx;
+}
+/* Marcar / deshacer obsolescencia (equipo simple o un componente) — comparte el
+   flujo con el botón de la ficha y con el de la ventana de estados. */
+async function toggleObsoleto(clave, despues){
+  const id = clave.split('#c')[0];
+  const idxC = clave.indexOf('#c')>0 ? +clave.split('#c')[1] : null;
+  const it = findItem(id); if(!it) return;
+  const esComp = idxC!==null && Array.isArray(it.c) && !!it.c[idxC];
+  const nombre = esComp ? (ETIQ[it.c[idxC].n]||it.c[idxC].n) : nombreDe(it);
+  const keyAcc = esComp ? id+'|'+idxC+'|obsoleto' : id+'|obsoleto';
+  const cerrarAcc = ()=> (S.acc||[]).forEach(a=>{
+    if(a.key===keyAcc && (a.estado==='pendiente'||a.estado==='cotizado')){
+      a.estado='ejecutado'; a.cierre=new Date().toISOString(); a.autor=AUTOR();
+      a.nota='dejó de ser obsoleto'; }});
+  if(esObsoletoClave(clave)){
+    delete S.obsoletos[clave];
+    cerrarAcc();
+    save(); render(); if(despues) despues();
+    flash('Dejó de ser obsoleto ✓ · '+nombre);
+    return;
+  }
+  const rv = await pedir({titulo:'Marcar como obsoleto',
+    sub: nombre + (esComp? ' · componente de '+nombreDe(it) : '')
+       + ' · entra en las compras como reemplazo.',
+    campos:[{id:'nota', label:'Motivo (opcional)',
+             placeholder:'Ej. sin refacciones / fuera de garantía'}], ok:'Marcar obsoleto'});
+  if(!rv) return;
+  const nota = (rv.nota||'').trim();
+  S.obsoletos = S.obsoletos || {};
+  S.obsoletos[clave] = {ts:new Date().toISOString(), autor:AUTOR(), nota};
+  const dd = id.indexOf('|')<0 ? dondeEsta(id) : null;
+  const cine = dd? dd.c.c : partes(id).cine;
+  const area = dd? dd.area : partes(id).area;
+  S.acc = S.acc || [];
+  if(!S.acc.find(a=> a.key===keyAcc)){
+    S.acc.push({key:keyAcc, cine, area, eq: nombreDe(it), comp: nombre,
+      puesto: esComp? '' : (it.p||''), tipo:'comprar',
+      monto: precioDe(nombre)||'', cant:1, estado:'pendiente',
+      nota:'obsoleto'+(nota? ': '+nota : ' · reemplazo'),
+      autor:AUTOR(), ts:new Date().toISOString()});
+  }
+  save(); render(); if(despues) despues();
+  flash('Marcado obsoleto ✓ · '+nombre+' entra en compras');
+}
 function esAreaBorrada(clave){ return Array.isArray(S.areaBorr) && S.areaBorr.indexOf(clave)>=0; }
 
 /* Ficha del equipo dentro de la ventana de estado: todo lo que se sabe de él */
@@ -2434,6 +2491,15 @@ function abrirModal(id, idx){
     b.classList.toggle('on', b.dataset.accion==='reparar'));
   const ficha = document.getElementById('m-ficha');
   if(ficha) ficha.innerHTML = fichaHTML(id, idx);
+  const boM = document.getElementById('m-obsoleto');
+  if(boM){
+    const clave = claveObsDe(id, idx);
+    boM.hidden = false;
+    boM.dataset.clave = clave;
+    const mar = esObsoletoClave(clave);
+    boM.textContent = mar? '♻ Dejar de ser obsoleto' : '♻ Marcar obsoleto';
+    boM.classList.toggle('on', mar);
+  }
   const lbl = document.getElementById('m-rev').closest('label');
   const pasaPorCoor = soloSoporte() && !enCD;   // solo Soporte manda a Coordinación
   lbl.hidden = !pasaPorCoor;
@@ -3381,8 +3447,15 @@ document.addEventListener('click', async ev=>{
   }
 
   // --- OBSOLETO ---
+  if(t.id==='m-obsoleto'){
+    const clave = t.dataset.clave; if(!clave || !mPend) return;
+    const {id: idM, idx: idxM} = mPend;
+    toggleObsoleto(clave, ()=>{ if(mPend) abrirModal(idM, idxM); else abrirModal(idM, idxM); });
+    return;
+  }
   if(t.id==='ed-obsoleto'){
     const id = mEd, it = findItem(id); if(!it) return;
+    if(it && it.c){ flash('Este equipo tiene componentes: marca la obsolescencia componente por componente (dale click al componente)'); return; }
     if(esObsoleto(id)){
       delete S.obsoletos[id];
       (S.acc||[]).forEach(a=>{ if(a.key===id+'|obsoleto' &&
