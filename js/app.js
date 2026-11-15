@@ -2582,7 +2582,10 @@ function confirmarModal(){
     if(existente){ existente.tipo = tipo; existente.nota = causa; existente.autor=AUTOR(); }
     else {
       const it = findItem(id); const p = partes(id);
-      S.acc.push({key, cine:p.cine, area:p.area, eq: it?it.n:'', comp: etiquetaComp(id,idx),
+      // equipos nuevos (id sin tubos): el cine real sale de dondeEsta
+      const dA = id.indexOf('|')<0 ? dondeEsta(id) : null;
+      S.acc.push({key, cine: dA? dA.c.c : p.cine, area: dA? dA.area : p.area,
+                  eq: it?it.n:'', comp: etiquetaComp(id,idx),
         puesto: (it&&it.p)||'', tipo, monto: precioDe(etiquetaComp(id,idx)), cant:1,
         estado:'pendiente', nota: causa, autor:AUTOR(), ts:new Date().toISOString()});
     }
@@ -3461,12 +3464,15 @@ document.addEventListener('click', async ev=>{
         {id:'comp', label:'Qué falta (ej. Impresora fiscal)',
          placeholder:'Nombre del equipo o componente'},
         {id:'cine', type:'select', label:'Cine', opciones: DATA.cines.map(c=>[c.c, c.n])},
+        {id:'area', type:'select', label:'Área (para las métricas por área)',
+         opciones: [['Varios','Varios']].concat(
+           [...new Set(DATA.cines.flatMap(c=> c.ar.map(a=> a.a)))].sort().map(a=>[a,a]))},
         {id:'cant', type:'number', label:'Cantidad', value:'1', inputmode:'numeric'},
         {id:'monto', type:'number', label:'Monto unitario (US$)', inputmode:'decimal'}
       ], ok:'Agregar al plan',
       validar: v=> !(v.comp||'').trim()? 'Escribe qué falta.' : null});
     if(!rv) return;
-    nuevaAccion({comp: rv.comp.trim(), cine: rv.cine, area:'Varios', eq:'', puesto:'',
+    nuevaAccion({comp: rv.comp.trim(), cine: rv.cine, area: rv.area||'Varios', eq:'', puesto:'',
       tipo:'comprar', cant: Math.max(1, Number(rv.cant)||1),
       monto: (rv.monto===''||rv.monto==null)? ''
              : (Number(String(rv.monto).replace(/[^\d.]/g,''))||0)});
