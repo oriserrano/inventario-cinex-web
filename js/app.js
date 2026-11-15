@@ -657,6 +657,46 @@ function queHacerIdeales(){
     <div style="padding:0 14px 14px">${tablasIdealesHTML()}</div>
   </details>`;
 }
+/* ===== Compras e inversión POR ÁREA (taquilla, dulcería, centro de datos…) =====
+   Saliendo de las acciones del plan que aún no se ejecutaron. */
+function datosPorArea(cine){
+  const map = {};
+  (S.acc||[]).filter(a=> a.estado!=='ejecutado' && (!cine || a.cine===cine)).forEach(a=>{
+    const k = a.area || 'Sin área';
+    const o = map[k] || (map[k] = {area:k, comprar:0, reparar:0, revisar:0,
+                                   montoComprar:0, montoReparar:0, monto:0, n:0});
+    const cant = Number(a.cant)||1, monto = Number(a.monto)||0;
+    if(a.tipo==='comprar'){ o.comprar += cant; o.montoComprar += monto; }
+    else if(a.tipo==='reparar'){ o.reparar += cant; o.montoReparar += monto; }
+    else o.revisar += cant;
+    o.monto += monto; o.n++;
+  });
+  const arr = Object.values(map).sort((a,b)=> b.monto - a.monto || b.n - a.n);
+  const totMonto = arr.reduce((s,x)=> s+x.monto, 0);
+  return {arr, totMonto,
+          totComprar: arr.reduce((s,x)=> s+x.comprar, 0),
+          totReparar: arr.reduce((s,x)=> s+x.reparar, 0)};
+}
+function tablaPorAreaHTML(cine){
+  const {arr, totMonto, totComprar, totReparar} = datosPorArea(cine);
+  if(!arr.length) return '<div class="empty-note">Sin acciones pendientes en el plan.</div>';
+  return `<div class="tbl-wrap"><table class="tbl">
+    <thead><tr><th>Área</th><th class="num">A comprar</th><th class="num">A reparar</th>
+      <th class="num">Inversión</th><th class="num">% del total</th></tr></thead>
+    <tbody>${arr.map(x=>`<tr>
+      <td><b>${x.area}</b><span class="ad" style="display:block;font-weight:400">${
+        x.n} ${x.n===1?'acción':'acciones'}${
+        x.revisar? ' · '+x.revisar+' por revisar':''}</span></td>
+      <td class="num">${x.comprar||'—'}</td>
+      <td class="num">${x.reparar||'—'}</td>
+      <td class="num"><b>${fmt(x.monto)}</b></td>
+      <td class="num">${totMonto? Math.round(x.monto*100/totMonto)+'%' : '—'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td><b>Total${cine? ' · '+cine : ''}</b></td>
+      <td class="num"><b>${totComprar}</b></td>
+      <td class="num"><b>${totReparar}</b></td>
+      <td class="num"><b>${fmt(totMonto)}</b></td>
+      <td class="num"><b>100%</b></td></tr></tfoot></table></div>`;
+}
 function histMovimiento(){
   const f = Object.keys(S.hist||{}).sort();
   if(f.length<2) return null;
@@ -774,6 +814,10 @@ function dashboard(){
         : '<div class="empty-note">Nada en reparación ✓</div>'}
     </div></div>
   </div>
+
+  <div class="card secc"><div class="hd"><h2>Inversión por área</h2>
+    <span class="ad">qué falta y cuánto invertir por zona del cine</span></div>
+    <div class="bd">${tablaPorAreaHTML(null)}</div></div>
 
   <div class="card secc"><div class="hd"><h2>Plan de acción</h2>
     <span class="ad">${(S.acc||[]).length} acciones</span>
@@ -1987,6 +2031,10 @@ function queHacer(){
     <div><b>${fmt(suma(S.acc.filter(a=>a.estado==='ejecutado')))}</b><span>Ejecutado</span></div>
     <div><b>${S.acc.length}</b><span>Acciones</span></div>
   </div>
+
+  <div class="card secc"><div class="hd"><h2>Inversión por área</h2>
+    <span class="ad">${C==='todos'? 'todas las áreas · lo que falta y cuánto' : 'solo '+C+' · lo que falta y cuánto'}</span></div>
+    <div class="bd">${tablaPorAreaHTML(C==='todos'? null : C)}</div></div>
 
   <div class="card secc"><div class="hd"><h2>Faltan, por componente</h2>
     <span class="ad">una fila por equipo · ${C==='todos'?'todos los cines':C}</span>
