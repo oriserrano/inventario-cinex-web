@@ -1753,17 +1753,6 @@ function cineVista(c){
     <span style="flex:1"></span>
     <button class="btn-p" id="exp-cine">⬇ Excel</button>
   </div>
-  <div class="card secc" style="margin:10px 12px 0">
-    <div class="hd"><h2>Razón social</h2>
-      <span class="ad">por área · facturación${Object.keys(S.razon||{}).some(k=>k.indexOf(c.c+'|')===0)? '' : ' · sin registrar'}</span></div>
-    <div class="bd">${todasAreas.map(a=>{
-      const v = (S.razon||{})[c.c+'|'+a.nombre];
-      return `<div class="frow2"><span>${a.nombre}</span>
-        <b>${v || '<i class="ad">—</i>'}</b>
-        <button class="mini" data-razon="${c.c}|${a.nombre}"
-          title="Editar razón social de ${a.nombre}">✎</button></div>`;
-    }).join('')}</div>
-  </div>
   <div class="counts counts7">
     <div><b>${nEquipos}</b><span>Equipos</span></div>
     <div><b>${nComponentes}</b><span>Componentes</span></div>
@@ -1799,6 +1788,17 @@ function cineVista(c){
   <div class="addrow" style="margin-top:6px">
     <input type="text" id="nueva-area" placeholder="Agregar área (ej. Runner)…">
     <button id="btn-area">+ Área</button>
+  </div>
+  <div class="card secc">
+    <div class="hd"><h2>Razón social</h2>
+      <span class="ad">por área · facturación</span></div>
+    <div class="bd">${todasAreas.map(a=>{
+      const v = (S.razon||{})[c.c+'|'+a.nombre];
+      return `<div class="frow2"><span>${a.nombre}</span>
+        <b>${v || '<i class="ad">—</i>'}</b>
+        <button class="mini" data-razon="${c.c}|${a.nombre}"
+          title="Editar razón social de ${a.nombre}">✎</button></div>`;
+    }).join('')}</div>
   </div>`;
 }
 
@@ -2252,12 +2252,12 @@ function queHacer(){
   const fcQH = facturables(C==='todos'? null : (DATA.cines.find(x=>x.c===C)||null));
   return `
   <div class="kpi">
-    <div title="Trío indispensable: CPU/AIO + Impresora fiscal + Pantalla táctil"
-      ><b>${fcQH.ok}/${fcQH.tot}</b><span>Estaciones facturables</span></div>
     <div><b>${fmt(total)}</b><span>Total estimado</span></div>
     <div><b>${fmt(suma(S.acc.filter(a=>a.estado==='pendiente')))}</b><span>Pendiente</span></div>
     <div><b>${fmt(suma(S.acc.filter(a=>a.estado==='ejecutado')))}</b><span>Ejecutado</span></div>
     <div><b>${S.acc.length}</b><span>Acciones</span></div>
+    <div title="Trío indispensable: CPU/AIO + Impresora fiscal + Pantalla táctil"
+      ><b>${fcQH.ok}/${fcQH.tot}</b><span>Facturables</span></div>
   </div>
 
   <div class="card secc"><div class="hd"><h2>Inversión por área</h2>
