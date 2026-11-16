@@ -52,7 +52,7 @@ function icono(t){
 
 /* ================= ESTADO ================= */
 let S = {est:{}, notas:{}, nuevos:{}, mod:{}, mov:[], hist:{}, vtid:{}, cmod:{}, acc:[], perfil:null,
-          causas:[], accionComp:{}, precios:{}, claves:{}, nomb:{}, puesto:{}, orden:{}};
+          causas:[], accionComp:{}, precios:{}, claves:{}, stock:{}, nomb:{}, puesto:{}, orden:{}};
 try{ const raw = localStorage.getItem(KEY); if(raw) S = Object.assign(S, JSON.parse(raw)); }catch(e){}
 S.notas = S.notas||{}; S.nuevos = S.nuevos||{}; S.mod = S.mod||{}; S.mov = S.mov||{}; S.hist = S.hist||{};
 S.vtid = S.vtid||{}; S.cmod = S.cmod||{};
@@ -776,6 +776,54 @@ function nombresComponentes(){
   return [...set]
     .filter(n=> n && !/^Puesto\s*\d+/i.test(n) && !/sin equipo/i.test(n) && !/^\d+$/.test(n))
     .sort((a,b)=> a.localeCompare(b,'es'));
+}
+/* ================= STOCK DE EQUIPOS (piezas de repuesto) ================= */
+function stockArr(){ const s = S.stock||{}; return Object.keys(s).map(k=> Object.assign({uid:k}, s[k])); }
+function stockDisponible(nombre){
+  const n = _n3(nombre);
+  return stockArr().filter(x=> Number(x.n)>0 && _n3(x.c)===n)
+                   .reduce((s,x)=> s+(Number(x.n)||0), 0);
+}
+function stockBadge(nombre){
+  const n = stockDisponible(nombre);
+  return n? ` <span class="badge" style="background:#e7f6ec;color:#1f7a45" title="Disponible en stock">📦 ${n}</span>` : '';
+}
+function stockHTML(){
+  const filas = stockArr().sort((a,b)=> String(a.c).localeCompare(String(b.c)));
+  const tipos = filas.length;
+  const unidades = filas.reduce((s,x)=> s+(Number(x.n)||0), 0);
+  let noms = nombresComponentes();
+  if(!Array.isArray(noms)) noms = Array.from(noms||[]);
+  const opciones = noms.sort().map(n=> `<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+  return `<div class="bd">
+    <div class="rowbtn" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+      <label style="flex:11;min-width:150px"><span class="ad">Componente</span>
+        <input id="st-comp" list="st-list" placeholder="Impresora fiscal">
+        <datalist id="st-list">${opciones}</datalist></label>
+      <label style="flex:1;min-width:110px"><span class="ad">Modelo</span>
+        <input id="st-mod" placeholder="HKA-80"></label>
+      <label style="width:80px"><span class="ad">Cant.</span>
+        <input id="st-cant" type="number" min="1" value="1" inputmode="numeric"></label>
+      <label style="flex:11;min-width:130px"><span class="ad">Nota</span>
+        <input id="st-nota" placeholder="almacén / quién lo dejó"></label>
+      <button class="btn-p" data-stockadd>Agregar</button>
+    </div>
+    <div class="ad" style="margin-bottom:8px"><b>${tipos}</b> tipos · <b>${unidades}</b> unidades en stock.
+      El plan muestra 📦 cuando lo que falta ya está aquí.</div>
+    ${filas.length? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Componente</th><th>Modelo</th><th class="num">Unidades</th><th>Nota</th><th></th></tr></thead>
+      <tbody>${filas.map(x=>`<tr>
+        <td><b>${x.c}</b></td>
+        <td>${x.m||'—'}</td>
+        <td class="num" style="white-space:nowrap">
+          <button data-stockinc="${x.uid}|-1" title="Quitar uno">−</button>
+          <b style="margin:0 6px">${Number(x.n)||0}</b>
+          <button data-stockinc="${x.uid}|1" title="Agregar uno">＋</button></td>
+        <td class="ad">${x.nota||''}</td>
+        <td class="num"><button data-stockdel="${x.uid}" title="Quitar del stock">×</button></td>
+      </tr>`).join('')}</tbody></table></div>`
+      : '<div class="empty-note">Sin stock cargado. Agrega la primera pieza arriba.</div>'}
+  </div>`;
 }
 function preciosHTML(){
   const nombres = nombresComponentes();
@@ -2357,7 +2405,7 @@ function queHacer(){
         <thead><tr><th>Componente</th><th class="num">A comprar</th><th class="num">A reparar</th>
           <th class="num">Precio c/u</th><th class="num">Subtotal</th></tr></thead>
         <tbody>${resumen.map(g=>`<tr>
-          <td><b>${g.comp}</b></td>
+          <td><b>${g.comp}</b>${stockBadge(g.comp)}</td>
           <td class="num">${g.comprar||'—'}</td>
           <td class="num">${g.reparar||'—'}</td>
           <td class="num">${g.precio===''||g.precio===undefined? '—' : fmt(g.precio)}</td>
@@ -2476,6 +2524,7 @@ function gestion(){
 
   const sec = vista.gseccion || (ROL()==='coordinacion' ? "aprob" : "tablero");
   const GSEC = [["tablero","Tablero"],["aprob","Aprobaciones"],["precios","Precios"],
+                ["stock","Stock"],
                 ["visitas","Visitas"],["usuarios","Usuarios"],
                 ["auditoria","Auditoría"],["personas","Personas"],["exportar","Exportar"]];
 
@@ -2635,6 +2684,8 @@ function gestion(){
     <div class="bd">${personasHTML}</div></div>`,
     precios: `<div class="card secc"><div class="hd"><h2>Precios de referencia</h2>
       <span class="ad">costo de cada componente · compras, plan y dashboard</span></div>${preciosHTML()}</div>`,
+    stock: `<div class="card secc"><div class="hd"><h2>Stock de equipos</h2>
+      <span class="ad">piezas de repuesto disponibles</span></div>${stockHTML()}</div>`,
     visitas: `<div class="card secc"><div class="hd"><h2>Resumen de visitas</h2>
       <span class="ad">estadística general</span></div>${resumenVisitasHTML()}</div>`,
     exportar: `<div class="card secc"><div class="hd"><h2>Exportar</h2></div><div class="bd">
@@ -4249,6 +4300,41 @@ document.addEventListener('click', async ev=>{
     if(arr.length>1) arr.pop(); else { flash('Debe quedar al menos1 disco'); return; }
     save(); render(); abrirDetalle(id, ci);
     flash('Disco quitado ✓'); return; }
+
+  /* ---- stock de equipos ---- */
+  const sadd = t.closest('[data-stockadd]');
+  if(sadd){
+    const c = (document.getElementById('st-comp')||{}).value || '';
+    const m = ((document.getElementById('st-mod')||{}).value || '').trim();
+    const nn = Math.max(1, parseInt((document.getElementById('st-cant')||{}).value, 10) || 1);
+    const nota = ((document.getElementById('st-nota')||{}).value || '').trim();
+    if(!c.trim()){ flash('Escribe qué componente es'); return; }
+    S.stock = S.stock || {};
+    S.stock['s'+Date.now()] = {c:c.trim(), m, n:nn, nota,
+      ts:new Date().toISOString(), autor:AUTOR()};
+    save(); render(); flash('Agregado al stock ✓ ('+nn+' '+c.trim()+')');
+    return;
+  }
+  const sinc = t.closest('[data-stockinc]');
+  if(sinc){
+    const p = sinc.dataset.stockinc.split('|'), uid = p[0], d = +p[1];
+    S.stock = S.stock || {};
+    const it2 = S.stock[uid]; if(!it2) return;
+    it2.n = Math.max(0, (Number(it2.n)||0) + d);
+    save(); render(); return;
+  }
+  const sdel = t.closest('[data-stockdel]');
+  if(sdel){
+    const uid = sdel.dataset.stockdel;
+    const it2 = (S.stock||{})[uid]; if(!it2) return;
+    const seguro = await pedir({titulo:'Quitar del stock',
+      sub: (Number(it2.n)||0)+' × '+(it2.c||'')+(it2.m? ' · '+it2.m : ''),
+      campos:[], ok:'Quitar'});
+    if(!seguro) return;
+    delete S.stock[uid];
+    save(); render(); flash('Quitado del stock ✓');
+    return;
+  }
 
   const comp = t.closest('[data-comp]');
   if(comp){ const raw = comp.dataset.comp, k = raw.lastIndexOf('|');
