@@ -2723,6 +2723,40 @@ async function sbCargar(){
     return arr[0];
   }catch(e){ return null; }
 }
+/* Cerro Verde = PCV (sus equipos se llaman PCVCTAQ01…). CRV fue un código malo
+   del importador: se reescribe todo lo guardado —del dispositivo y de la nube—
+   y es idempotente (si no hay CRV, no hace nada). */
+function normalizarCRV(){
+  const ck = k=> (k==='CRV' ? 'PCV'
+    : (typeof k==='string' && k.indexOf('CRV|')===0 ? 'PCV'+k.slice(3) : k));
+  const cv = ck;
+  let hubo = false;
+  ['est','comps','nomb','mod','notas','cmod','vtid','discos','retirados','obsoletos',
+   'meta','ideales','areaNombres','obs'].forEach(k=>{
+    const o = S[k]; if(!o || typeof o!=='object' || Array.isArray(o)) return;
+    Object.keys(o).forEach(kk=>{ const nk = ck(kk);
+      if(nk!==kk){ o[nk] = o[kk]; delete o[kk]; hubo = true; } });
+  });
+  if(S.nuevos && S.nuevos.CRV){
+    S.nuevos.PCV = (S.nuevos.PCV||[]).concat(S.nuevos.CRV); delete S.nuevos.CRV; hubo = true;
+  }
+  if(Array.isArray(S.cinesNuevos)) S.cinesNuevos.forEach(c=>{
+    if(c && c.c==='CRV'){ c.c = 'PCV'; hubo = true; } });
+  ['barrados'].forEach(()=>{});          // (nada)
+  ['borrados','areaBorr'].forEach(k=>{
+    if(Array.isArray(S[k])) S[k] = S[k].map(x=>{
+      const n = cv(x); if(n!==x) hubo = true; return n; });
+  });
+  (S.mov||[]).forEach(m=>{
+    if(m.cine==='CRV'){ m.cine = 'PCV'; hubo = true; }
+    if(typeof m.id==='string' && m.id.indexOf('CRV|')===0){ m.id = 'PCV'+m.id.slice(3); hubo = true; }
+    if(typeof m.ref==='string' && m.ref.indexOf('CRV|')===0){ m.ref = 'PCV'+m.ref.slice(3); hubo = true; }});
+  (S.acc||[]).forEach(a=>{
+    if(a.cine==='CRV'){ a.cine = 'PCV'; hubo = true; }
+    if(typeof a.key==='string' && a.key.indexOf('CRV|')===0){ a.key = 'PCV'+a.key.slice(3); hubo = true; }});
+  (S.visitas||[]).forEach(v=>{ if(v.cine==='CRV'){ v.cine = 'PCV'; hubo = true; } });
+  return hubo;
+}
 function fusionarRemoto(rem){
   const remTs = Date.parse(rem.actualizado || 0) || 0;
   const locTs = S._sync || 0;
@@ -2749,6 +2783,7 @@ function fusionarRemoto(rem){
     S[k] = r[k];
   });
   S._sync = remTs;
+  normalizarCRV();
   return true;
 }
 /* Unión sin pérdidas: lo local pisa (estamos a punto de subirlo) y lo que falta
@@ -2792,6 +2827,7 @@ function fusionarSeguro(rem){
                    '_modif','_sync'];
   Object.keys(r).forEach(k=>{ if(propios.indexOf(k)<0) S[k] = r[k]; });
   if(remTs) S._sync = Math.max(S._sync||0, remTs);
+  normalizarCRV();
   return true;
 }
 /* La base como fuente de verdad de las claves. null = no se pudo contactar. */
@@ -2815,6 +2851,7 @@ function sbProgramar(){
 }
 async function sbSubir(){
   if(SB.estado !== 'conectado') return;
+  normalizarCRV();              // nunca subir CRV: todos los equipos usan PCV
   try{
     //1) primero bajar lo que esté en la base y fusionarlo: así nadie pisa lo del otro
     try{
@@ -4066,6 +4103,7 @@ pintarNube();
 if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
+if(normalizarCRV()) save();   // CRV → PCV: se corrige y se guarda
 aplicarComps();
 aplicarBorradosArea();
 aplicarMeta();
