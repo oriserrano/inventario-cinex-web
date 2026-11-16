@@ -1461,7 +1461,7 @@ function detalleLinea(it, ci){
   const movs = movsDe(it.id, ci);
   if(!movs.length && (est==='ok' || est==='pend' || est==='falta')) return '';
   const m = movs[0];
-  const esOk = !!m && m.a==='ok';
+  const esOk = !!m && (LABEL[m.a] || m.a) === 'Operativo';   // el mov guarda la etiqueta, no la clave
   // Operativo no necesita causa: nunca se avisa «sin causa» en un cambio a ok
   const avisa = !!m && !m.causa && !esOk;
   const causa = (m && m.causa) ? m.causa
