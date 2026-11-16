@@ -155,8 +155,38 @@ function etiquetaComp(id, idx){
 }
 function estadosItem(it){
   const e = S.est[it.id] || {};
-  if(it.c) return it.c.map((ch,ci)=> e[ci]||'falta');
+  if(it.c) return it.c.map((ch,ci)=>{
+    const base = e[ci]||'falta';
+    // disco marcado MALO arrastra al componente (derivado: no escribe nada)
+    const arr = (S.discos||{})[it.id+'|'+ci];
+    if(Array.isArray(arr) && arr.indexOf('mal')>=0 && base!=='malo' && base!=='rep') return 'malo';
+    return base;
+  });
   return [e.e||'ok'];
+}
+/* Disco marcado malo → sustituir entra al plan; si el disco vuelve a estar
+   bien, la acción se cierra. Una por disco (clave id|ci|discoN). */
+function discoAccion(id, ci, i, nuevo){
+  const it = findItem(id); if(!it) return;
+  const d = dondeEsta(id); if(!d) return;
+  const key = id+'|'+ci+'|disco'+i;
+  const nombre = (it.c && it.c[ci] && it.c[ci].n) || '';
+  const ya = (S.acc||[]).find(a=>a.key===key);
+  if(nuevo==='mal'){
+    if(ya && ya.estado!=='ejecutado'){
+      ya.nota = 'disco '+(i+1)+' malo: sustituir';
+    } else if(!ya){
+      nuevaAccion({key, cine:d.c.c, area:d.area, eq:nombreDe(it),
+        comp: nombre+' · disco '+(i+1), puesto:it.p||'', tipo:'comprar',
+        monto: precioDe(nombre)||'', cant:1, nota:'disco malo: sustituir'});
+    } else {
+      ya.estado='pendiente'; ya.nota='disco '+(i+1)+' volvió a estar malo';
+      ya.ts=new Date().toISOString(); ya.autor=AUTOR();
+    }
+  } else if(ya && (ya.estado==='pendiente'||ya.estado==='cotizado')){
+    ya.estado='ejecutado'; ya.cierre=new Date().toISOString(); ya.autor=AUTOR();
+    ya.nota='disco '+(i+1)+' quedó '+nuevo;
+  }
 }
 /* Si el componente quedó operativo, su acción del plan no tiene sentido:
    se cierra como ejecutada (antes quedaban planes "reparar" en algo sano). */
@@ -213,6 +243,23 @@ function conteos(c){
   });
   c.ar.forEach(a=> recorre(a.v));
   Object.values(nuevosDe(c)).forEach(recorre);
+  return r;
+}
+/* Total de EQUIPOS por estado (un equipo = todo su trío/lista en el mismo bando):
+   operativo = todos ok · inoperativo = alguno dañado/en reparación ·
+   con faltantes = le falta algo · sin revisar = solo pendientes. */
+function resumenEquipos(){
+  const r = {op:0, ino:0, fal:0, sin:0, tot:0};
+  const revisa = items=> vivos(items).forEach(it=>{
+    if(it.x || RETIRADO(it) || BORRADO(it)) return;
+    r.tot++;
+    const s = estadosItem(it);
+    if(s.every(x=>x==='ok')) r.op++;
+    else if(s.some(x=>x==='malo'||x==='rep')) r.ino++;
+    else if(s.some(x=>x==='falta')) r.fal++;
+    else if(s.some(x=>x==='pend')) r.sin++;
+  });
+  DATA.cines.forEach(c=>{ c.ar.forEach(a=> revisa(a.v)); Object.values(nuevosDe(c)).forEach(revisa); });
   return r;
 }
 function conteosTotales(){
@@ -1142,6 +1189,13 @@ function home(){
         ${tot.vacias? `<button class="kpi-f${vista.gf==='vacias'?' on':''}" data-gf="vacias"><b>${tot.vacias}</b> puestos sin equipo</button>`:''}
         ${tot.retirados? `<span><b>${tot.retirados}</b> retirados</span>`:''}
       </div>
+      ${(()=>{ const re = resumenEquipos(); return `<div class="ad" style="margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)">
+        <b>EQUIPOS (${re.tot}):</b>
+        <b style="color:var(--ok)">${re.op} operativos</b> ·
+        <b style="color:var(--mal)">${re.ino} inoperativos</b> ·
+        <b>${re.fal} con faltantes</b> ·
+        <b>${re.sin} sin revisar</b>
+        <span style="color:var(--mut)"> — equipo operativo = todos sus componentes OK</span></div>`;})()}
     </div></div>
   ${vista.gf? tarjetaFiltro():''}
 
@@ -4156,6 +4210,7 @@ document.addEventListener('click', async ev=>{
     const id = r2.slice(0, j), ci = +r2.slice(j+1);
     const arr = discosDe(id, ci);
     arr[i] = DISCO_EST[(DISCO_EST.indexOf(arr[i]) + 1) % DISCO_EST.length];
+    discoAccion(id, ci, i, arr[i]);
     save(); render(); return;
   }
   const dadd = t.closest('[data-dadd]');
