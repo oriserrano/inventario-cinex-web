@@ -1715,7 +1715,7 @@ function itemHtml(it){
           ${crit? 'title="Componente crítico: afecta la facturación"' : ''}>
         <div class="mhd">
           <span class="icow">${icono(esCpu? 'cpu' : (ETIQ[nombre]||nombre))}</span>
-          <span class="mnm">${ETIQ[nombre]||nombre}${esPrimordial(it.id, ci)?'<i class="prim" title="Componente primordial">⭐</i>':''}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}${
+          <span class="mnm">${ETIQ[nombre]||nombre}${esPrimordial(it.id, ci)?'<i class="prim" title="Componente primordial">⭐</i>':(crit?'<i class="ptoe" aria-hidden="true"></i>':'')}${
             esObsoletoComp(it.id, ci)? `<i class="obsc" title="Componente obsoleto${
               (S.obsoletos[it.id+'#c'+ci].nota? ': '+S.obsoletos[it.id+'#c'+ci].nota : '')}">♻</i>`:''}</span>
           <span class="pill ${est}">${CORTOC[est]}</span>${
@@ -3452,6 +3452,30 @@ function unirCinesRemoto(rc){
 }
 /* Cines borrados: la lista viaja en la nube, así aunque otro equipo con la
    versión vieja lo vuelva a subir, aquí no aparece (ni al subir). */
+/* Componentes quitados (compsBorrados): se eliminan de la lista local al
+   arrancar, para que ningún navegador local los resucite. */
+function aplicarBorradosComps(){
+  const br = S.compsBorrados || [];
+  if(!br.length || !S.comps) return 0;
+  let n = 0;
+  br.forEach(ref=>{
+    const k = ref.lastIndexOf('|');
+    // id|...|nombre: el id puede llevar | (cod|area|idx|puesto|nombre)
+    const partes = ref.split('|');
+    const nombre = partes.pop();
+    const id = partes.join('|');
+    const arr = S.comps[id];
+    if(!Array.isArray(arr)) return;
+    const i = arr.findIndex(c=> c && c.n === nombre);
+    if(i >= 0){ arr.splice(i,1); n++;
+      const e = S.est[id];
+      if(e && typeof e==='object'){ const ne={}; Object.keys(e).forEach(kk=>{ const m=+kk;
+        if(!isNaN(m) && kk!=='e'){ ne[String(m > i ? m-1 : m)] = e[kk]; }
+        else if(kk==='e') ne.e = e[kk]; }); S.est[id]=ne; }
+    }
+  });
+  return n;
+}
 function aplicarBorradosCine(){
   const b = S.cinesBorrados || [];
   if(!b.length) return false;
@@ -3568,9 +3592,9 @@ async function entrarAcceso(){
   if(guardada){
     if(hashClave(pin) !== guardada) return fallo('Clave incorrecta. Inténtalo otra vez.');
   } else {
-    if(rem === null) return fallo('Sin conexión con la base: no se pudo verificar tu clave. Revisa la conexión e inténtalo de nuevo.');
     if(pin.length < 3) return fallo('La clave debe tener al menos3 caracteres.');
     S.claves[n] = hashClave(pin);              // primera vez: se crea y queda en la base
+    if(rem === null) flash('Sin conexión con la base: tu clave quedó guardada localmente y se sincronizará al reconectar.');
   }
   const rol = rolDe(n);
   S.perfil = {nombre:n, rol};
@@ -4628,6 +4652,7 @@ if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
 aplicarBorradosCine();        // cines que alguien borró: no aparecen aunque otro los suba
+aplicarBorradosComps();       // componentes quitados: no resucitan desde otro navegador
 if(normalizarCRV()) save();   // CRV → PCV: se corrige y se guarda
 aplicarComps();
 aplicarBorradosArea();
