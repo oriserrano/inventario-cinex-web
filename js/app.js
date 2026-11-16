@@ -1814,7 +1814,7 @@ const EST_PLAN = [['pendiente','Pendiente'],['cotizado','Cotizado'],
 const fmt = n => '$'+Number(n||0).toLocaleString('es-VE',{maximumFractionDigits:0});
 const CATALOGO = ['CPU','Monitor principal','Monitor secundario','Impresora fiscal',
   'Dispositivo fiscal','Escáner','Gaveta','Pinpad','UPS/Regulador','Punto de red','TV','Tablet',
-  'Estación completa',
+  'Estación completa', 'All-in-One',
   // Centro de datos
   'Servidor','Switch','Router','UPS APC 2KVA','Supresor de picos','Patch panel','Mini PC',
   'Memoria','Disco Duros','Batería de Raid','Fuentes de poder',
