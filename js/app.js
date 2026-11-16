@@ -1224,6 +1224,8 @@ function abrirEdicion(id){
   document.getElementById('ed-nombre').value = nombreDe(it);
   document.getElementById('ed-puesto').value = puestoDe(it);
   document.getElementById('ed-modelo').value = modeloDe(it)||'';
+  const ep = document.getElementById('ed-primordial');
+  if(ep) ep.checked = esPrimordial(id);
   document.getElementById('ed-nuevocomp').value = '';
   const br = document.getElementById('ed-retirar');
   br.textContent = RETIRADO(it)? 'Reincorporar equipo' : 'Retirar equipo';
@@ -1419,6 +1421,11 @@ function guardarEdicion(){
   S.nomb[mEd] = n;
   if(pu) S.puesto[mEd] = pu; else delete S.puesto[mEd];
   S.mod[mEd] = mo;
+  const ep2 = document.getElementById('ed-primordial');
+  if(ep2){
+    S.primordial = S.primordial || {};
+    if(ep2.checked) S.primordial[mEd] = 1; else delete S.primordial[mEd];
+  }
   save(); cerrarEdicion(); render();
   flash('Equipo actualizado ✓');
 }
@@ -1575,7 +1582,9 @@ function itemHtml(it){
           <span class="mnm">${ETIQ[nombre]||nombre}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}${
             esObsoletoComp(it.id, ci)? `<i class="obsc" title="Componente obsoleto${
               (S.obsoletos[it.id+'#c'+ci].nota? ': '+S.obsoletos[it.id+'#c'+ci].nota : '')}">♻</i>`:''}</span>
-          <span class="pill ${est}">${CORTOC[est]}</span>
+          <span class="pill ${est}">${CORTOC[est]}</span>${
+            (S.tactil||{})[it.id+'|'+ci]==='malo'
+              ? '<span class="pill malo" title="Táctil malo — lo usan con mouse">⚠ táctil</span>' : ''}
         </div>
         ${nombre==='VTID' && tienePinpad ? '' :
           `<div class="mv ${val?'':'vac'}" ${esCpu? `data-mod="${it.id}"` : `data-cmod="${it.id}|${ci}"`}>${val||'+ Modelo'}</div>`}
@@ -1596,7 +1605,7 @@ function itemHtml(it){
     return `<div class="eq ${vacio?'empty':''} ${cls}" data-eq="${it.id}">
       <div class="eh">
         <span class="icow">${icono(nombreDe(it)+' '+(it.m||'')+' '+mod)}</span>
-        <span class="etit"><span class="en" data-edit="${it.id}" title="Editar nombre y posición">${nombreDe(it)}</span>
+        <span class="etit"><span class="en" data-edit="${it.id}" title="Editar nombre y posición">${esPrimordial(it.id)?'<i class="prim" title="Equipo primordial">⭐</i> ':''}${nombreDe(it)}</span>
           <span class="em">${puestoDe(it)? 'Puesto '+puestoDe(it) : ''}</span></span>
         ${malos? `<button class="badge mal" data-incid="${it.id}"
             title="Ver qué está malo en este equipo">${malos} incid.</button>`:''}
@@ -1604,6 +1613,7 @@ function itemHtml(it){
         <span class="acts">
           <button data-note="${it.id}" title="Nota">✎</button>
           <button data-ok="${it.id}" title="Todo operativo">✓</button>
+          <button data-todo="${it.id}" title="Marcar todo el equipo (falta / dañado / sin revisar…)">≡</button>
         </span>
       </div>
       ${RETIRADO(it)? `<span class="badge ret">RETIRADO · ${RETIRADO(it).motivo||''}</span>`:''}
@@ -2625,6 +2635,11 @@ async function toggleObsoleto(clave, despues){
 /* All-in-One: si se REPARA, se repara el mismo y NO se pregunta.
    Solo se pregunta cuando es REEMPLAZO (falta, sustituir u obsoleto). */
 const esAIO = n=> /all[\s\-_]*in[\s\-_]*one|\baio\b/i.test(String(n||''));
+/* Táctil: un All-in-One o un Monitor principal pueden estar «operativos» con el
+   táctil malo (lo usan con mouse). Se registra aparte y, si está malo, genera compra. */
+const esTactil = n=> /all[\s\-_]*in[\s\-_]*one|\baio\b|monitor principal|t[aá]ctil/i.test(String(n||''));
+function tacDe(id, idx){ return (S.tactil||{})[id+'|'+idx] || ''; }
+function esPrimordial(id){ return !!(S.primordial||{})[id]; }
 async function elegirFormaAIO(){
   const rv = await pedir({titulo:'¿Cómo se reemplaza el All-in-One?',
     sub:'Es una compra de reemplazo — si la acción es Reparar, se repara el mismo.',
@@ -2716,6 +2731,17 @@ function abrirModal(id, idx){
     `${it.n} · ${etiquetaComp(id,idx)} · Estado actual: ${LABEL[actual]}`;
   document.querySelectorAll('#m-estados [data-estado]').forEach(b=>
     b.classList.toggle('on', b.dataset.estado===actual));
+  const boxT = document.getElementById('m-tactil');
+  if(boxT){
+    const esT = esTactil(etiquetaComp(id, idx));
+    boxT.hidden = !esT;
+    if(esT){
+      const val = tacDe(id, idx);
+      mPend.tactilSel = val || '';
+      document.querySelectorAll('#m-tactil [data-tactil]').forEach(b=>
+        b.classList.toggle('on', b.dataset.tactil===val));
+    }
+  }
   pintarCausas('');
   document.getElementById('m-det').value='';
   document.querySelectorAll('[data-accion]').forEach(b=>
@@ -2755,7 +2781,9 @@ async function confirmarModal(){
   const tipo = (mPend.nuevo==='falta') ? 'comprar'      // falta → se compra
     : (ACC_MAP[(accSel && accSel.dataset.accion) || 'reparar'] || 'reparar');
   const {id, idx, nuevo, viejo} = mPend;
-  if(nuevo===viejo && !causa){ cerrarModal(); return; }   // no cambió nada
+  const tacAhora = tacDe(id, idx);
+  const tacCambio = !!mPend.tactilSel && mPend.tactilSel !== tacAhora;
+  if(nuevo===viejo && !causa && !tacCambio){ cerrarModal(); return; }   // no cambió nada
   const key = id+'|'+idx;
   if(nuevoDe(id, idx, nuevo, causa, rev)){
     // REEMPLAZO de un All-in-One → ¿una pieza o dos?  (Reparar: no se pregunta)
@@ -2783,6 +2811,54 @@ async function confirmarModal(){
     }
     if(forma==='piezas') accHija(key, 'CPU', 'segunda pieza del reemplazo (monitor táctil + CPU)');
     else cerrarHijas(key, 'se compra como All-in-One (una pieza)');
+  }
+  // ===== TÁCTIL =====
+  const nomCompT = etiquetaComp(id, idx);
+  if(esTactil(nomCompT)){
+    let sel = mPend.tactilSel || '';
+    if(!sel && nuevo==='ok'){
+      const rvT = await pedir({titulo:'¿Cómo está el táctil?',
+        sub: nomCompT + ' · ' + nombreDe(findItem(id)||{}),
+        campos:[{id:'t', type:'select', label:'Táctil',
+          opciones:[['ok','Bueno — se opera al tacto'],
+                    ['malo','Malo — lo usan con mouse (compra)']]}],
+        ok:'Continuar'});
+      sel = rvT? rvT.t : '';
+    }
+    if(sel){
+      const kT = key + '|tactil';
+      S.tactil = S.tactil || {};
+      if(sel==='malo'){
+        S.tactil[key] = 'malo';
+        // la compra: si es All-in-One se decide cómo; si es pantalla, la pantalla
+        let formaT = null;
+        if(esAIO(nomCompT)) formaT = await elegirFormaAIO();
+        const compT = esAIO(nomCompT)
+          ? ((formaT==='piezas') ? 'Monitor principal' : 'All-in-One')
+          : nomCompT;
+        S.acc = S.acc || [];
+        const exT = S.acc.find(a=> a.key===kT);
+        if(exT){
+          exT.comp = compT; exT.monto = precioDe(compT); exT.estado='pendiente';
+          exT.nota = 'táctil malo (lo usan con mouse)'; exT.autor=AUTOR();
+        } else {
+          const pT = partes(id); const dT = dondeEsta(id);
+          S.acc.push({key:kT, cine: dT? dT.c.c : pT.cine, area: dT? dT.area : pT.area,
+            eq: nombreDe(findItem(id)||{}), comp: compT, tipo:'comprar',
+            monto: precioDe(compT), cant:1, estado:'pendiente',
+            nota:'táctil malo (lo usan con mouse)', autor:AUTOR(),
+            ts:new Date().toISOString()});
+        }
+        if(formaT==='piezas') accHija(kT, 'CPU', 'segunda pieza del reemplazo (monitor táctil + CPU)');
+      } else {
+        delete S.tactil[key];
+        (S.acc||[]).forEach(a=>{
+          if((a.key===kT || a.padre===kT) && (a.estado==='pendiente'||a.estado==='cotizado')){
+            a.estado='ejecutado'; a.cierre=new Date().toISOString(); a.autor=AUTOR();
+            a.nota='táctil operativo';
+          }});
+      }
+    }
   }
   save(); cerrarModal(); render();
   flash(rev==='pendiente' ? 'Guardado · en revisión del coordinador' : 'Guardado ✓');
@@ -3939,6 +4015,13 @@ document.addEventListener('click', async ev=>{
       b.classList.toggle('on', b===estBtn));
     actualizarFalloModal(); return;
   }
+  const tacBtn = t.closest('#m-tactil [data-tactil]');
+  if(tacBtn && mPend){
+    mPend.tactilSel = tacBtn.dataset.tactil;
+    document.querySelectorAll('#m-tactil [data-tactil]').forEach(b=>
+      b.classList.toggle('on', b===tacBtn));
+    return;
+  }
 
   const nota = t.closest('[data-note]');
   if(nota){
@@ -4055,6 +4138,47 @@ document.addEventListener('click', async ev=>{
     if(it && it.c) it.c.forEach((ch,ci)=> nuevoDe(id, ci, 'ok'));
     else nuevoDe(id, 'e', 'ok');
     save(); render(); return;
+  }
+  const todo = t.closest('[data-todo]');
+  if(todo){
+    const id = todo.dataset.todo;
+    const it = findItem(id); if(!it) return;
+    const rv = await pedir({titulo:'Marcar todo el equipo',
+      sub: nombreDe(it) + (it.c? ' · ' + it.c.length + ' componentes' : ''),
+      campos:[{id:'e', type:'select', label:'Estado para todo',
+        opciones:[['falta','Falta — ausente / no existe'],
+                  ['malo','Dañado — inoperativo'],
+                  ['rep','En reparación'],
+                  ['pend','Sin revisar'],
+                  ['ok','Operativo']]}],
+      ok:'Marcar'});
+    if(!rv) return;
+    const nuevo = rv.e;
+    if(it.c) it.c.forEach((ch,ci)=> nuevoDe(id, ci, nuevo, ''));
+    else nuevoDe(id, 'e', nuevo, '');
+    if(nuevo==='ok'){
+      if(it.c) it.c.forEach((ch,ci)=> cerrarPlanSiOk(id, ci));
+      (S.acc||[]).forEach(a=>{
+        if(a.key===id+'|estacion' && (a.estado==='pendiente'||a.estado==='cotizado')){
+          a.estado='ejecutado'; a.cierre=new Date().toISOString(); a.autor=AUTOR();
+          a.nota='equipo completo operativo';
+        }});
+    }
+    // todo ausente → UNA compra de estación completa (no una por componente)
+    if(nuevo==='falta' && it.c){
+      const kE = id + '|estacion';
+      S.acc = S.acc || [];
+      if(!S.acc.find(a=> a.key===kE)){
+        const pE = partes(id); const dE = dondeEsta(id);
+        S.acc.push({key:kE, cine: dE? dE.c.c : pE.cine, area: dE? dE.area : pE.area,
+          eq: nombreDe(it), comp:'Estación completa', tipo:'comprar',
+          monto: precioDe('Estación completa'), cant:1, estado:'pendiente',
+          nota:'equipo completo ausente', autor:AUTOR(), ts:new Date().toISOString()});
+      }
+    }
+    save(); render();
+    flash('Todo el equipo: ' + (LABEL[nuevo]||nuevo) + ' ✓');
+    return;
   }
   const okArea = t.closest('[data-ok-area]');
   if(okArea){
