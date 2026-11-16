@@ -810,16 +810,18 @@ function stockSincroniza(){
   let n = 0;
   const porEquipo = id => Object.keys(S.stock).filter(k=> S.stock[k].id===id);
   DATA.cines.forEach(c=> itemsDeCine(c).forEach(({it, area})=>{
-    if(it.x || RETIRADO(it) || BORRADO(it) || !it.c) return;
+    if(it.x || RETIRADO(it) || BORRADO(it)) return;
     const ests = estadosItem(it);
-    it.c.forEach((ch, ci)=>{
+    const partes = it.c || [{n: it.n || 'Equipo'}];      // equipo simple tambien entra
+    partes.forEach((ch, ci)=>{
       const e = ests[ci];
-      const k = Object.keys(S.stock).find(k2=> S.stock[k2].id===it.id && S.stock[k2].ci===ci);
+      const ciReal = it.c? ci : null;
+      const k = Object.keys(S.stock).find(k2=> S.stock[k2].id===it.id && S.stock[k2].ci===ciReal);
       if(e==='malo' || e==='rep'){
         if(!k){
           S.stock['k'+Date.now()+'-'+Math.random().toString(36).slice(2,7)] = {
-            c: ch.n, m: ch.v||'', s: (S.serial||{})[it.id+'|'+ci]||'',
-            eq: nombreDe(it), id: it.id, ci, cine: c.c,
+            c: ch.n, m: ch.v||'', s: (S.serial||{})[it.id+'|'+ciReal]||'',
+            eq: nombreDe(it), id: it.id, ci: ciReal, cine: c.c,
             ubi: e==='rep'? 'Proveedor' : c.c, fecha: hoy,
             acc: e==='rep'? 'Recoger de proveedor' : 'Sustituir / reparar',
             n: 1, nota:'', origen: e==='rep'?'reparacion':'malo', ts: hoy, autor: AUTOR()};
