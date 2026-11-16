@@ -2735,10 +2735,12 @@ function normalizarCRV(){
    'meta','ideales','areaNombres','obs'].forEach(k=>{
     const o = S[k]; if(!o || typeof o!=='object' || Array.isArray(o)) return;
     Object.keys(o).forEach(kk=>{ const nk = ck(kk);
-      if(nk!==kk){ o[nk] = o[kk]; delete o[kk]; hubo = true; } });
+      if(nk!==kk){ if(!(nk in o)) o[nk] = o[kk]; delete o[kk]; hubo = true; } });
   });
   if(S.nuevos && S.nuevos.CRV){
-    S.nuevos.PCV = (S.nuevos.PCV||[]).concat(S.nuevos.CRV); delete S.nuevos.CRV; hubo = true;
+    const base = S.nuevos.PCV || [], v = new Set(base.map(x=> x && x.id));
+    (S.nuevos.CRV||[]).forEach(x=>{ if(x && !v.has(x.id)){ v.add(x.id); base.push(x); } });
+    S.nuevos.PCV = base; delete S.nuevos.CRV; hubo = true;   // sin duplicar equipos
   }
   if(Array.isArray(S.cinesNuevos)) S.cinesNuevos.forEach(c=>{
     if(c && c.c==='CRV'){ c.c = 'PCV'; hubo = true; } });
