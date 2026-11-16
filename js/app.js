@@ -2761,7 +2761,9 @@ async function confirmarModal(){
     S.accionComp[key] = tipo;                 // decide qué va al plan
     const existente = S.acc.find(a=>a.key===key);
     if(existente){
-      existente.tipo = tipo; existente.nota = causa; existente.autor=AUTOR();
+      existente.tipo = tipo;
+      if(causa) existente.nota = causa;      // no se borra el historial con causa vacía
+      existente.autor=AUTOR();
       if(forma==='piezas'){ existente.comp = 'Monitor principal';
                             existente.monto = precioDe('Monitor principal'); }
     }
