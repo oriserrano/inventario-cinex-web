@@ -376,7 +376,10 @@ function render(){
   else if(vista.tab==='visitas') app.innerHTML = visitas();
   else if(vista.tab==='dashboard') app.innerHTML = dashboard();
   else if(vista.tab==='gestion') app.innerHTML = gestion();
-  else app.innerHTML = vista.modo==='home' ? home() : cineVista(DATA.cines.find(c=>c.c===vista.cine));
+  else {
+    const cv = DATA.cines.find(c=>c.c===vista.cine);
+    app.innerHTML = (vista.modo==='home' || !cv) ? home() : cineVista(cv);
+  }
   if(vista.tab==='visitas') bindFirma();
   document.querySelectorAll('[data-tab]').forEach(b=>{
     const ok = permitidos.indexOf(b.dataset.tab)>=0;
