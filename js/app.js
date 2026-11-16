@@ -1277,8 +1277,7 @@ function abrirEdicion(id){
   document.getElementById('ed-nombre').value = nombreDe(it);
   document.getElementById('ed-puesto').value = puestoDe(it);
   document.getElementById('ed-modelo').value = modeloDe(it)||'';
-  const ep = document.getElementById('ed-primordial');
-  if(ep) ep.checked = esPrimordial(id);
+
   document.getElementById('ed-nuevocomp').value = '';
   const br = document.getElementById('ed-retirar');
   br.textContent = RETIRADO(it)? 'Reincorporar equipo' : 'Retirar equipo';
@@ -1393,6 +1392,36 @@ function quitarComponente(ci){
       na[pref+(i>ci? i-1:i)] = S.accionComp[k];
     });
     S.accionComp = na;
+    // modelos, discos, serial, táctil y obsolescencia también van por índice:
+    // sin este reajuste los modelos se quedan pegados a la posición vieja
+    const corre = (obj, arma)=>{ if(!obj) return;
+      const nu = {};
+      Object.keys(obj).forEach(k=>{
+        if(k.indexOf(it.id+'|')!==0 && k.indexOf(it.id+'#')!==0){ nu[k]=obj[k]; return; }
+        const p = arma(k); if(p===null) return;      // pertenecía al componente quitado
+        nu[p] = obj[k];
+      });
+      return nu;
+    };
+    const idxDe = k=>{ const s = k.slice(it.id.length);
+      if(s[0]==='|'){ const i = +s.slice(1); if(isNaN(i)) return null; return i===ci? null : (i>ci? i-1 : i); }
+      if(s[0]==='#'){ const m = s.match(/^#c(\d+)$/); if(!m) return null;
+        const i = +m[1]; return i===ci? null : '#c'+(i>ci? i-1 : i); }
+      return null; };
+    S.cmod = corre(S.cmod, idxDe);
+    if(S.discos) S.discos = corre(S.discos, idxDe);
+    if(S.serial) S.serial = corre(S.serial, idxDe);
+    if(S.tactil) S.tactil = corre(S.tactil, idxDe);
+    if(S.obsoletos){
+      const nu = {};
+      Object.keys(S.obsoletos).forEach(k=>{
+        if(k.indexOf(it.id+'#c')!==0){ nu[k]=S.obsoletos[k]; return; }
+        const i = +k.slice((it.id+'#c').length);
+        if(i===ci) return;                            // la obsolescencia de ese componente se va con él
+        nu[it.id+'#c'+(i>ci? i-1 : i)] = S.obsoletos[k];
+      });
+      S.obsoletos = nu;
+    }
     guardarComps(it);
     save(); pintarCompsEd(); render();
     flash(nombre+' quitado del equipo ✓');
@@ -1474,11 +1503,6 @@ function guardarEdicion(){
   S.nomb[mEd] = n;
   if(pu) S.puesto[mEd] = pu; else delete S.puesto[mEd];
   S.mod[mEd] = mo;
-  const ep2 = document.getElementById('ed-primordial');
-  if(ep2){
-    S.primordial = S.primordial || {};
-    if(ep2.checked) S.primordial[mEd] = 1; else delete S.primordial[mEd];
-  }
   save(); cerrarEdicion(); render();
   flash('Equipo actualizado ✓');
 }
@@ -1633,7 +1657,7 @@ function itemHtml(it){
           ${crit? 'title="Componente crítico: afecta la facturación"' : ''}>
         <div class="mhd">
           <span class="icow">${icono(esCpu? 'cpu' : (ETIQ[nombre]||nombre))}</span>
-          <span class="mnm">${ETIQ[nombre]||nombre}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}${
+          <span class="mnm">${ETIQ[nombre]||nombre}${esPrimordial(it.id, ci)?'<i class="prim" title="Componente primordial">⭐</i>':''}${crit?'<i class="ptoe" aria-hidden="true"></i>':''}${
             esObsoletoComp(it.id, ci)? `<i class="obsc" title="Componente obsoleto${
               (S.obsoletos[it.id+'#c'+ci].nota? ': '+S.obsoletos[it.id+'#c'+ci].nota : '')}">♻</i>`:''}</span>
           <span class="pill ${est}">${CORTOC[est]}</span>${
@@ -1660,7 +1684,7 @@ function itemHtml(it){
     return `<div class="eq ${vacio?'empty':''} ${cls}" data-eq="${it.id}">
       <div class="eh">
         <span class="icow">${icono(nombreDe(it)+' '+(it.m||'')+' '+mod)}</span>
-        <span class="etit"><span class="en" data-edit="${it.id}" title="Editar nombre y posición">${esPrimordial(it.id)?'<i class="prim" title="Equipo primordial">⭐</i> ':''}${nombreDe(it)}</span>
+        <span class="etit"><span class="en" data-edit="${it.id}" title="Editar nombre y posición">${nombreDe(it)}</span>
           <span class="em">${puestoDe(it)? 'Puesto '+puestoDe(it) : ''}</span></span>
         ${malos? `<button class="badge mal" data-incid="${it.id}"
             title="Ver qué está malo en este equipo">${malos} incid.</button>`:''}
@@ -2714,7 +2738,7 @@ function serialHtml(it, ci){
 }
 const esTactil = n=> /all[\s\-_]*in[\s\-_]*one|\baio\b|monitor principal|t[aá]ctil/i.test(String(n||''));
 function tacDe(id, idx){ return (S.tactil||{})[id+'|'+idx] || ''; }
-function esPrimordial(id){ return !!(S.primordial||{})[id]; }
+function esPrimordial(id, idx){ return !!(S.primordial||{})[id+'|'+idx]; }
 async function elegirFormaAIO(){
   const rv = await pedir({titulo:'¿Cómo se reemplaza el All-in-One?',
     sub:'Es una compra de reemplazo — si la acción es Reparar, se repara el mismo.',
@@ -2810,6 +2834,12 @@ function abrirModal(id, idx){
     `${it.n} · ${etiquetaComp(id,idx)} · Estado actual: ${LABEL[actual]}`;
   document.querySelectorAll('#m-estados [data-estado]').forEach(b=>
     b.classList.toggle('on', b.dataset.estado===actual));
+  const bp = document.getElementById('btn-prim');
+  if(bp){
+    const pre = esPrimordial(id, idx);
+    bp.textContent = pre? '⭐ Es PRIMORDIAL — quitar marca' : '☆ Marcar componente como PRIMORDIAL (no puede faltar)';
+    bp.classList.toggle('on', pre);
+  }
   const boxT = document.getElementById('m-tactil');
   if(boxT){
     const esT = esTactil(etiquetaComp(id, idx));
@@ -4149,6 +4179,15 @@ document.addEventListener('click', async ev=>{
     document.querySelectorAll('#m-estados [data-estado]').forEach(b=>
       b.classList.toggle('on', b===estBtn));
     actualizarFalloModal(); return;
+  }
+  const bp2 = t.closest('#btn-prim');
+  if(bp2 && mPend){
+    const kP = mPend.id + '|' + mPend.idx;
+    S.primordial = S.primordial || {};
+    if(S.primordial[kP]) delete S.primordial[kP]; else S.primordial[kP] = 1;
+    save(); render();
+    flash(S.primordial[kP]? 'Componente PRIMORDIAL ⭐' : 'Marca de primordial quitada');
+    return;
   }
   const tacBtn = t.closest('#m-tactil [data-tactil]');
   if(tacBtn && mPend){
