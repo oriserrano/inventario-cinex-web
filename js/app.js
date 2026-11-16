@@ -1105,7 +1105,10 @@ function home(){
     const dotc = r.malo? 'var(--mal)' : (r.rep? 'var(--rep)' : (r.pend? 'var(--fal)':'var(--ok)'));
     return `<div class="card cine" data-cine="${c.c}">
       <div class="dot" style="background:${dotc}"></div>
-      <div class="nm">${c.n}</div><div class="cd">${c.c}</div>
+      <div class="nm">${c.n}</div>
+      <div class="cd">${c.c}${adminUsuarios() && (S.cinesNuevos||[]).some(x=>x.c===c.c)
+        ? ` <button class="mini" data-cineborrar="${c.c}"
+            title="Borrar este cine (no volverá a aparecer en ningún equipo)">🗑</button>` : ''}</div>
       <div class="bar">
         <i style="${seg(r.total?r.ok/r.total*100:0)};background:var(--ok)"></i>
         <i style="${seg(r.total?r.rep/r.total*100:0)};background:var(--rep)"></i>
@@ -3119,6 +3122,7 @@ function fusionarTodo(r){
     if(YA_UNIDO.indexOf(k) >= 0) return;
     S[k] = mezclarClave(k, r[k], S[k]);
   });
+  aplicarBorradosCine();
 }
 function fusionarRemoto(rem){
   const remTs = Date.parse(rem.actualizado || 0) || 0;
@@ -3347,6 +3351,22 @@ function unirCinesRemoto(rc){
     if(!DATA.cines.some(d=> d.c===x.c)) DATA.cines.push(x);
   }});
 }
+/* Cines borrados: la lista viaja en la nube, así aunque otro equipo con la
+   versión vieja lo vuelva a subir, aquí no aparece (ni al subir). */
+function aplicarBorradosCine(){
+  const b = S.cinesBorrados || [];
+  if(!b.length) return false;
+  DATA.cines = DATA.cines.filter(c=> b.indexOf(c.c) < 0);
+  if(Array.isArray(S.cinesNuevos))
+    S.cinesNuevos = S.cinesNuevos.filter(c=> b.indexOf((c||{}).c) < 0);
+  b.forEach(cod=>{
+    if(S.nuevos) delete S.nuevos[cod];
+    ['est','comps','nomb','mod','razon','puesto','ordenManual'].forEach(k=>{
+      if(S[k]) Object.keys(S[k]).forEach(kk=>{ if(kk.indexOf(cod+'|')===0) delete S[k][kk]; });
+    });
+  });
+  return true;
+}
 function aplicarMeta(){
   if(!S.meta) return;
   DATA.meta = DATA.meta || {};
@@ -3554,7 +3574,7 @@ document.addEventListener('click', async ev=>{
     return;
   }
 
-  const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],[data-serial],[data-razon],#btn-area,[data-fed],[data-fobs],[data-fplan],[data-fplannew]');
+  const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],[data-serial],[data-razon],[data-cineborrar],#btn-area,[data-fed],[data-fobs],[data-fplan],[data-fplannew]');
   if(editando && !puedeEditar()){ flash('Módulo Gerencia: solo lectura'); return; }
 
   const pf = t.closest('[data-pf]');
@@ -3843,6 +3863,25 @@ document.addEventListener('click', async ev=>{
     save(); render(); flash('Revisión aprobada ✓'); return;
   }
 
+  const cborr = t.closest('[data-cineborrar]');
+  if(cborr){
+    const cod = cborr.dataset.cineborrar;
+    const cineB = DATA.cines.find(c=>c.c===cod) || {};
+    const rv = await pedir({titulo:'Borrar cine',
+      sub: (cineB.n||cod)+' · '+cod,
+      campos:[{id:'v', type:'select', label:'¿Segura?',
+        opciones:[['no','No, déjalo'],
+                  ['si','Sí, bórralo y que no vuelva a aparecer']]}],
+      ok:'Continuar'});
+    if(rv && rv.v==='si'){
+      S.cinesBorrados = S.cinesBorrados || [];
+      if(S.cinesBorrados.indexOf(cod)<0) S.cinesBorrados.push(cod);
+      aplicarBorradosCine();
+      save(); render();
+      flash((cineB.n||cod)+' borrado ✓ · ya no aparece en ningún equipo');
+    }
+    return;
+  }
   const cine = t.closest('[data-cine]');
   if(cine){ scrollObj=0; vista={...vista, modo:'cine', cine:cine.dataset.cine,
     filtro:'all', areaF:'todas'}; render(); return; }
@@ -4479,6 +4518,7 @@ pintarNube();
 if(S.cinesNuevos.length){
   S.cinesNuevos.forEach(c=>{ if(!DATA.cines.some(x=>x.c===c.c)) DATA.cines.push(c); });
 }
+aplicarBorradosCine();        // cines que alguien borró: no aparecen aunque otro los suba
 if(normalizarCRV()) save();   // CRV → PCV: se corrige y se guarda
 aplicarComps();
 aplicarBorradosArea();
