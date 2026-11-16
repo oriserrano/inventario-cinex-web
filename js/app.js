@@ -457,12 +457,14 @@ function render(){
     window.scrollTo(0,0);
     return;
   }
+  if(S.perfil && stockSincroniza()) save();      // stock al dia con los estados
   const permitidos = tabsPermitidos();
   if(permitidos.indexOf(vista.tab)<0){          // módulo sin acceso a esa pestaña
     vista.tab = 'resumen'; vista.modo = 'home'; vista.cine = null; scrollObj = 0;
   }
   if(vista.tab==='quehacer') app.innerHTML = queHacerIdeales() + queHacer();
   else if(vista.tab==='visitas') app.innerHTML = visitas();
+  else if(vista.tab==='stock') app.innerHTML = stockVista();
   else if(vista.tab==='dashboard') app.innerHTML = dashboard();
   else if(vista.tab==='gestion') app.innerHTML = gestion();
   else {
@@ -788,6 +790,67 @@ function stockBadge(nombre){
   const n = stockDisponible(nombre);
   return n? ` <span class="badge" style="background:#e7f6ec;color:#1f7a45" title="Disponible en stock">📦 ${n}</span>` : '';
 }
+const STOCK_UBI_FIJAS = ['Almacén','Oficina','Proveedor'];
+function stockCineNombre(cod){ const c = DATA.cines.find(x=> x.c===cod); return c? c.n : cod; }
+function stockPuede(){ const r = ROL(); return r==='soporte' || r==='gerencia'; }
+function stockStats(){
+  const f = stockArr();
+  return {tipos: f.length,
+          un: f.reduce((s,x)=> s+(Number(x.n)||0), 0),
+          prov: f.filter(x=> x.ubi==='Proveedor').length,
+          ofi: f.filter(x=> x.ubi==='Oficina').length,
+          cine: f.filter(x=> x.ubi && x.ubi!=='Oficina' && x.ubi!=='Proveedor' && x.ubi!=='Almacén').length};
+}
+/* Movimientos automaticos: malo -> a la lista (en su cine); en reparacion ->
+   Proveedor; retirado -> Oficina; si vuelve a operar y lo creó el sistema,
+   sale de la lista. Todo con su fecha. */
+function stockSincroniza(){
+  if(!S.stock) S.stock = {};
+  const hoy = new Date().toISOString();
+  let n = 0;
+  const porEquipo = id => Object.keys(S.stock).filter(k=> S.stock[k].id===id);
+  DATA.cines.forEach(c=> itemsDeCine(c).forEach(({it, area})=>{
+    if(it.x || RETIRADO(it) || BORRADO(it) || !it.c) return;
+    const ests = estadosItem(it);
+    it.c.forEach((ch, ci)=>{
+      const e = ests[ci];
+      const k = Object.keys(S.stock).find(k2=> S.stock[k2].id===it.id && S.stock[k2].ci===ci);
+      if(e==='malo' || e==='rep'){
+        if(!k){
+          S.stock['k'+Date.now()+'-'+Math.random().toString(36).slice(2,7)] = {
+            c: ch.n, m: ch.v||'', s: (S.serial||{})[it.id+'|'+ci]||'',
+            eq: nombreDe(it), id: it.id, ci, cine: c.c,
+            ubi: e==='rep'? 'Proveedor' : c.c, fecha: hoy,
+            acc: e==='rep'? 'Recoger de proveedor' : 'Sustituir / reparar',
+            n: 1, nota:'', origen: e==='rep'?'reparacion':'malo', ts: hoy, autor: AUTOR()};
+          n++;
+        } else if(e==='rep' && S.stock[k].ubi!=='Proveedor' && S.stock[k].ubi!=='Oficina'){
+          S.stock[k].ubi='Proveedor'; S.stock[k].fecha=hoy;
+          S.stock[k].acc='Recoger de proveedor'; n++;
+        }
+      } else if(e==='ok' && k && (S.stock[k].origen==='malo' || S.stock[k].origen==='reparacion')
+                && !S.stock[k].nota){
+        delete S.stock[k]; n++;                    // se arregló: sale de la lista
+      }
+    });
+  }));
+  return n;
+}
+function stockVista(){
+  const s = stockStats();
+  return `<div class="card secc"><div class="hd"><h2>Stock de equipos</h2>
+    <span class="ad">dónde está cada pieza y qué toca hacer</span></div>
+    <div class="bd">
+      <div class="kpis" style="margin-bottom:12px">
+        <span class="kpi-f"><b>${s.un}</b> piezas</span>
+        <span class="kpi-f"><b>${s.tipos}</b> registros</span>
+        <span class="kpi-f"><b style="color:#0b5cad">${s.cine}</b> en cine</span>
+        <span class="kpi-f"><b style="color:#9a6d00">${s.prov}</b> en proveedor</span>
+        <span class="kpi-f"><b>${s.ofi}</b> en oficina</span>
+      </div>
+      ${stockHTML()}
+    </div></div>`;
+}
 function stockHTML(){
   const filas = stockArr().sort((a,b)=> String(a.c).localeCompare(String(b.c)));
   const tipos = filas.length;
@@ -795,34 +858,61 @@ function stockHTML(){
   let noms = nombresComponentes();
   if(!Array.isArray(noms)) noms = Array.from(noms||[]);
   const opciones = noms.sort().map(n=> `<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+  const puede = stockPuede();
+  const cinesOpts = ['<option value="">—</option>'].concat(
+    DATA.cines.map(c=> `<option value="${c.c}">${c.n}</option>`)).join('');
+  const ubiOpts = STOCK_UBI_FIJAS.concat(DATA.cines.map(c=> c.c))
+    .map(u=> `<option value="${u}">${STOCK_UBI_FIJAS.indexOf(u)>=0? u : stockCineNombre(u)}</option>`).join('');
   return `<div class="bd">
-    <div class="rowbtn" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+    ${puede? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
       <label style="flex:11;min-width:150px"><span class="ad">Componente</span>
         <input id="st-comp" list="st-list" placeholder="Impresora fiscal">
         <datalist id="st-list">${opciones}</datalist></label>
       <label style="flex:1;min-width:110px"><span class="ad">Modelo</span>
         <input id="st-mod" placeholder="HKA-80"></label>
-      <label style="width:80px"><span class="ad">Cant.</span>
+      <label style="flex:1;min-width:120px"><span class="ad">Serial</span>
+        <input id="st-serial" placeholder="SN…"></label>
+      <label style="flex:1;min-width:130px"><span class="ad">Cine</span>
+        <select id="st-cine">${cinesOpts}</select></label>
+      <label style="flex:1;min-width:130px"><span class="ad">Ubicación</span>
+        <select id="st-ubi">${ubiOpts}</select></label>
+      <label style="flex:11;min-width:150px"><span class="ad">Próxima acción</span>
+        <input id="st-acc" placeholder="Sustituir / reparar / revisar…"></label>
+      <label style="width:74px"><span class="ad">Cant.</span>
         <input id="st-cant" type="number" min="1" value="1" inputmode="numeric"></label>
-      <label style="flex:11;min-width:130px"><span class="ad">Nota</span>
-        <input id="st-nota" placeholder="almacén / quién lo dejó"></label>
+      <label style="flex:11;min-width:120px"><span class="ad">Nota</span>
+        <input id="st-nota" placeholder="quién lo dejó"></label>
       <button class="btn-p" data-stockadd>Agregar</button>
-    </div>
+    </div>` : `<div class="ad" style="margin-bottom:10px">Solo Soporte y Gerencia cargan el stock — todos pueden verlo.</div>`}
     <div class="ad" style="margin-bottom:8px"><b>${tipos}</b> tipos · <b>${unidades}</b> unidades en stock.
       El plan muestra 📦 cuando lo que falta ya está aquí.</div>
     ${filas.length? `<div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>Componente</th><th>Modelo</th><th class="num">Unidades</th><th>Nota</th><th></th></tr></thead>
+      <thead><tr><th>Componente</th><th>Modelo</th><th>Serial</th><th>Equipo</th>
+        <th>Cine</th><th>Ubicación</th><th>Fecha</th><th>Próxima acción</th>
+        <th class="num">Cant.</th>${puede? '<th></th>':''}</tr></thead>
       <tbody>${filas.map(x=>`<tr>
-        <td><b>${x.c}</b></td>
+        <td><b>${x.c}</b>${x.origen&&x.origen!=='manual'? ` <span class="badge rev" title="creado automáticamente">${x.origen==='retiro'?'RET':(x.origen==='reparacion'?'REP':'MALO')}</span>`:''}</td>
         <td>${x.m||'—'}</td>
-        <td class="num" style="white-space:nowrap">
-          <button data-stockinc="${x.uid}|-1" title="Quitar uno">−</button>
-          <b style="margin:0 6px">${Number(x.n)||0}</b>
-          <button data-stockinc="${x.uid}|1" title="Agregar uno">＋</button></td>
-        <td class="ad">${x.nota||''}</td>
-        <td class="num"><button data-stockdel="${x.uid}" title="Quitar del stock">×</button></td>
+        <td class="ad">${x.s||'—'}</td>
+        <td class="ad">${x.eq||'—'}</td>
+        <td>${x.cine? stockCineNombre(x.cine):'—'}</td>
+        <td><b style="color:${x.ubi==='Proveedor'?'#9a6d00':(x.ubi==='Oficina'?'#6b7280':'var(--ok)')}">${
+          x.ubi? (STOCK_UBI_FIJAS.indexOf(x.ubi)>=0? x.ubi : stockCineNombre(x.ubi)) : '—'}</b></td>
+        <td class="ad">${x.fecha? String(x.fecha).slice(0,10):'—'}</td>
+        <td>${x.acc||'—'}</td>
+        <td class="num" style="white-space:nowrap">${puede? `
+          <button data-stockinc="${x.uid}|-1" title="Quitar uno">−</button>`:''}
+          <b style="margin:0 6px">${Number(x.n)||0}</b>${puede? `
+          <button data-stockinc="${x.uid}|1" title="Agregar uno">＋</button>`:''}</td>
+        ${puede? `<td class="num" style="white-space:nowrap">
+          <select data-stockubi="${x.uid}" title="Cambiar ubicación" style="max-width:110px">
+            ${STOCK_UBI_FIJAS.concat(DATA.cines.map(c=> c.c)).map(u=>
+              `<option value="${u}" ${x.ubi===u?'selected':''}>${
+                STOCK_UBI_FIJAS.indexOf(u)>=0? u : stockCineNombre(u)}</option>`).join('')}
+          </select>
+          <button data-stockdel="${x.uid}" title="Quitar del stock">×</button></td>`:''}
       </tr>`).join('')}</tbody></table></div>`
-      : '<div class="empty-note">Sin stock cargado. Agrega la primera pieza arriba.</div>'}
+      : '<div class="empty-note">Sin registros. Cuando un equipo se marque dañado aparecerá aquí con su cine.</div>'}
   </div>`;
 }
 function preciosHTML(){
@@ -969,6 +1059,8 @@ function dashboard(){
     <div><b>${fmt(d.tot)}</b><span>Inversión planificada</span></div>
     <div><b>${d.totComprar}</b><span>Piezas a comprar</span></div>
     <div><b>${d.totReparar}</b><span>Piezas a reparar</span></div>
+    <div><b>${stockStats().un}</b><span>Piezas en stock</span></div>
+    <div><b>${stockStats().prov}</b><span>En proveedor</span></div>
     <div><b>${statsVisitas().n}</b><span>Visitas registradas${
       statsVisitas().n? ' · '+statsVisitas().pct+'% checklist' : ''}</span></div>
   </div>
@@ -1577,6 +1669,10 @@ async function retirarEquipo(){
   const ya = RETIRADO(it);
   if(ya){                       // reincorporar
     delete S.retirados[mEd];
+    { const hoy = new Date().toISOString();
+      Object.keys(S.stock||{}).forEach(k=>{ const x = S.stock[k];
+        if(x.id===mEd && x.ubi==='Oficina'){ const dR2 = dondeEsta(mEd);
+          x.ubi = dR2? dR2.c.c : x.cine; x.fecha=hoy; x.acc='Revisar estado'; } }); }
     save(); cerrarEdicion(); render();
     flash('Equipo reincorporado ✓');
     return;
@@ -1590,6 +1686,15 @@ async function retirarEquipo(){
     validar: v=> !(v.motivo||'').trim() ? 'Justifica el retiro para dejarlo en la bitácora.' : null});
   if(!r) return;
   S.retirados[mEd] = {motivo:r.motivo.trim(), ts:new Date().toISOString(), autor:AUTOR()};
+  { const hoy = new Date().toISOString(); let movio = 0;
+    Object.keys(S.stock||{}).forEach(k=>{ const x = S.stock[k];
+      if(x.id===mEd && x.ubi!=='Oficina'){ x.ubi='Oficina'; x.fecha=hoy;
+        x.acc=x.acc||'Decidir destino del equipo'; movio++; } });
+    if(!movio){ const dR2 = dondeEsta(mEd)||{c:{c:''},area:''};
+      S.stock['r'+Date.now()] = {c:nombreDe(it), m:(S.mod||{})[mEd]||'', s:'',
+        eq:nombreDe(it), id:mEd, ci:null, cine:dR2.c.c||'', ubi:'Oficina', fecha:hoy,
+        acc:'Decidir destino del equipo', n:1, nota:'', origen:'retiro',
+        ts:hoy, autor:AUTOR()}; } }
   S.acc = S.acc.filter(a=> !(a.key && a.key.indexOf(mEd+'|')===0));
   const dRet = dondeEsta(mEd) || {c:{c:''}, area:''};
   S.mov.push({ts:new Date().toISOString(), id:mEd, cine:dRet.c.c||'', area:dRet.area||'',
@@ -2524,7 +2629,6 @@ function gestion(){
 
   const sec = vista.gseccion || (ROL()==='coordinacion' ? "aprob" : "tablero");
   const GSEC = [["tablero","Tablero"],["aprob","Aprobaciones"],["precios","Precios"],
-                ["stock","Stock"],
                 ["visitas","Visitas"],["usuarios","Usuarios"],
                 ["auditoria","Auditoría"],["personas","Personas"],["exportar","Exportar"]];
 
@@ -3430,7 +3534,7 @@ function iniciales(nombre){
 function tabsPermitidos(){
   if(!S.perfil) return [];
   const rol = ROL();
-  const base = ['resumen','visitas'];                          // todos registran visitas
+  const base = ['resumen','visitas','stock'];                  // todos registran visitas y ven stock
   if(rol==='soporte') return base;
   if(rol==='infraestructura') return base.concat(['gestion']);
   if(rol==='coordinacion') return base.concat(['quehacer','gestion']);
@@ -4304,19 +4408,26 @@ document.addEventListener('click', async ev=>{
   /* ---- stock de equipos ---- */
   const sadd = t.closest('[data-stockadd]');
   if(sadd){
+    if(!stockPuede()){ flash('Solo Soporte y Gerencia cargan el stock'); return; }
     const c = (document.getElementById('st-comp')||{}).value || '';
     const m = ((document.getElementById('st-mod')||{}).value || '').trim();
+    const s = ((document.getElementById('st-serial')||{}).value || '').trim();
+    const cine = ((document.getElementById('st-cine')||{}).value || '').trim();
+    const ubi = ((document.getElementById('st-ubi')||{}).value || '').trim() || 'Almacén';
+    const acc = ((document.getElementById('st-acc')||{}).value || '').trim();
     const nn = Math.max(1, parseInt((document.getElementById('st-cant')||{}).value, 10) || 1);
     const nota = ((document.getElementById('st-nota')||{}).value || '').trim();
     if(!c.trim()){ flash('Escribe qué componente es'); return; }
     S.stock = S.stock || {};
-    S.stock['s'+Date.now()] = {c:c.trim(), m, n:nn, nota,
-      ts:new Date().toISOString(), autor:AUTOR()};
+    const hoy = new Date().toISOString();
+    S.stock['s'+Date.now()] = {c:c.trim(), m, s, cine, ubi, acc, n:nn, nota,
+      origen:'manual', fecha:hoy, ts:hoy, autor:AUTOR()};
     save(); render(); flash('Agregado al stock ✓ ('+nn+' '+c.trim()+')');
     return;
   }
   const sinc = t.closest('[data-stockinc]');
   if(sinc){
+    if(!stockPuede()){ flash('Solo Soporte y Gerencia editan el stock'); return; }
     const p = sinc.dataset.stockinc.split('|'), uid = p[0], d = +p[1];
     S.stock = S.stock || {};
     const it2 = S.stock[uid]; if(!it2) return;
@@ -4325,6 +4436,7 @@ document.addEventListener('click', async ev=>{
   }
   const sdel = t.closest('[data-stockdel]');
   if(sdel){
+    if(!stockPuede()){ flash('Solo Soporte y Gerencia editan el stock'); return; }
     const uid = sdel.dataset.stockdel;
     const it2 = (S.stock||{})[uid]; if(!it2) return;
     const seguro = await pedir({titulo:'Quitar del stock',
@@ -4602,6 +4714,13 @@ document.addEventListener('keydown', ev=>{
 document.addEventListener('change', ev=>{
   const t = ev.target;
   const d = t.dataset || {};
+  if(d.stockubi!==undefined){
+    if(!stockPuede()){ flash('Solo Soporte y Gerencia editan el stock'); render(); return; }
+    const x = (S.stock||{})[d.stockubi];
+    if(x){ x.ubi = t.value; x.fecha = new Date().toISOString();
+           x.autor = AUTOR(); save(); render(); flash('Ubicación actualizada ✓'); }
+    return;
+  }
   if(d.pc!==undefined){ vista.planC = t.value; render(); return; }
   if(d.acc!==undefined){
     const a = S.acc[+d.acc];
