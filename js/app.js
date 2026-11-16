@@ -67,6 +67,7 @@ S.acc = Array.isArray(S.acc)? S.acc : [];
 S.perfil = S.perfil || null;
 S.causas = Array.isArray(S.causas)? S.causas : [];
 S.accionComp = S.accionComp || {};
+S.ordenManual = S.ordenManual || {};   // equipos cuyo orden de componentes fijó alguien
 S.precios = S.precios || {};
 S.claves = S.claves || {};
 S.obs = S.obs || {};
@@ -161,13 +162,17 @@ function estadosItem(it){
    se cierra como ejecutada (antes quedaban planes "reparar" en algo sano). */
 function cerrarPlanSiOk(id, idx){
   if(!Array.isArray(S.acc)) return false;
-  const acc = S.acc.find(x=> x.key===id+'|'+idx);
-  if(!acc || (acc.estado!=='pendiente' && acc.estado!=='cotizado')) return false;
-  acc.estado = 'ejecutado';
-  acc.cierre = new Date().toISOString();
-  acc.autor = AUTOR();
-  acc.nota = (acc.nota? acc.nota+' · ' : '') + 'quedó operativo';
-  return true;
+  const k = id+'|'+idx;
+  let hubo = false;
+  S.acc.forEach(a=>{
+    if((a.key===k || a.padre===k) && (a.estado==='pendiente' || a.estado==='cotizado')){
+      a.estado='ejecutado';
+      a.cierre = new Date().toISOString();
+      a.autor = AUTOR();
+      a.nota = (a.nota? a.nota+' · ' : '') + 'quedó operativo';
+      hubo = true;
+    }});
+  return hubo;
 }
 function nuevoDe(id, idx, a, causa, rev){
   const it = findItem(id);
@@ -1255,6 +1260,48 @@ function pintarCompsEd(){
       title="${crit?'Afecta la facturación':'Quitar componente'}">
       <span>${ETIQ[ch.n]||ch.n}${mar? '<i class="obsc">♻</i>':''}</span><span class="pill ${est}">${CORTOC[est]}</span><b aria-hidden="true">✕</b></button>`;
   }).join('');
+  if(it.c.length>1){
+    box.innerHTML += `<div class="ordenc"><span class="ad">Orden de componentes</span>
+      <select id="ed-ordensel" aria-label="Componente a mover">${it.c.map((ch,i)=>
+        `<option value="${i}">${i+1}. ${ETIQ[ch.n]||ch.n}</option>`).join('')}</select>
+      <button type="button" data-compord="-1" title="Subir el seleccionado">◀ Subir</button>
+      <button type="button" data-compord="1" title="Bajar el seleccionado">Bajar ▶</button>
+    </div>`;
+  }
+}
+/* Reordena la ficha: se mueve la pareja componente+estado (y todo lo que se
+   guarda por posición: estados, modelos, discos, obsolescencia, plan). */
+function reordenarComp(dir){
+  const it = findItem(mEd); if(!it || !it.c || it.c.length<2) return;
+  const sel = document.getElementById('ed-ordensel');
+  const i = sel? Number(sel.value) : 0;
+  const j = i + dir;
+  if(isNaN(i) || j<0 || j>=it.c.length){ flash(dir<0? 'Ya es el primero' : 'Ya es el último'); return; }
+  const tmp = it.c[i]; it.c[i] = it.c[j]; it.c[j] = tmp;
+  const sw = (obj, ka, kb)=>{
+    if(!obj) return;
+    const a = obj[ka], b = obj[kb];
+    if(a===undefined && b===undefined) return;
+    obj[ka] = b; obj[kb] = a;
+  };
+  sw(S.est[it.id] || {}, i, j);                    // estados por posición
+  sw(S.cmod || {}, it.id+'|'+i, it.id+'|'+j);      // modelos por posición
+  sw(S.discos || {}, it.id+'|'+i, it.id+'|'+j);    // discos por posición
+  sw(S.obsoletos || {}, it.id+'#c'+i, it.id+'#c'+j); // obsolescencia por componente
+  (S.acc||[]).forEach(a=>{                          // plan: claves id|índice
+    if(a.key===it.id+'|'+i) a.key = it.id+'|'+j;
+    else if(a.key===it.id+'|'+j) a.key = it.id+'|'+i;
+    if(a.padre===it.id+'|'+i) a.padre = it.id+'|'+j;
+    else if(a.padre===it.id+'|'+j) a.padre = it.id+'|'+i;
+  });
+  sw(S.accionComp || {}, it.id+'|'+i, it.id+'|'+j);
+  S.ordenManual = S.ordenManual || {};
+  S.ordenManual[it.id] = 1;                        // la tarjeta respeta este orden
+  guardarComps(it);                                // el orden viaja en S.comps
+  save(); pintarCompsEd(); render();
+  const sel2 = document.getElementById('ed-ordensel');
+  if(sel2) sel2.value = String(j);
+  flash('Orden actualizado ✓');
 }
 function quitarComponente(ci){
   const it = findItem(mEd); if(!it || !it.c || !it.c[ci]) return;
@@ -1507,8 +1554,9 @@ function itemHtml(it){
   if(it.c){
     const malos = ests.filter(s=>s==='malo'||s==='rep').length;
     const tienePinpad = it.c.some(c=>c.n==='Pinpad');
-    const tarjeta = (nombre, span)=>{
-      const ci = it.c.findIndex(ch=>ch.n===nombre);
+    const tarjeta = (nombre, span, idx)=>{
+      const ci = (idx!==undefined && it.c[idx] && it.c[idx].n===nombre)
+        ? idx : it.c.findIndex(ch=>ch.n===nombre);
       if(ci<0) return '';
       const ch = it.c[ci];
       const est = (S.est[it.id]||{})[ci] || 'falta';
@@ -1532,8 +1580,10 @@ function itemHtml(it){
         ${detalleLinea(it, ci)}
       </div>`;
     };
-    const tarjetas =
-      ORDEN_MOST.filter(([n])=> it.c.some(ch=>ch.n===n) &&
+    const tarjetas = (S.ordenManual && S.ordenManual[it.id])
+      ? it.c.map((ch,i)=>({ch,i})).filter(({ch})=> !(ch.n==='VTID' && tienePinpad))
+             .map(({ch,i})=> tarjeta(ch.n, 'm2', i)).join('')
+      : ORDEN_MOST.filter(([n])=> it.c.some(ch=>ch.n===n) &&
                        !(n==='VTID' && tienePinpad))
         .map(([n, span])=> tarjeta(n, span)).join('')
       + it.c.filter(ch=> !ORDEN_MOST.some(([n])=> n===ch.n) &&
@@ -2524,7 +2574,7 @@ async function toggleObsoleto(clave, despues){
   const nombre = esComp ? (ETIQ[it.c[idxC].n]||it.c[idxC].n) : nombreDe(it);
   const keyAcc = esComp ? id+'|'+idxC+'|obsoleto' : id+'|obsoleto';
   const cerrarAcc = ()=> (S.acc||[]).forEach(a=>{
-    if(a.key===keyAcc && (a.estado==='pendiente'||a.estado==='cotizado')){
+    if((a.key===keyAcc || a.padre===keyAcc) && (a.estado==='pendiente'||a.estado==='cotizado')){
       a.estado='ejecutado'; a.cierre=new Date().toISOString(); a.autor=AUTOR();
       a.nota='dejó de ser obsoleto'; }});
   if(esObsoletoClave(clave)){
@@ -2547,15 +2597,60 @@ async function toggleObsoleto(clave, despues){
   const cine = dd? dd.c.c : partes(id).cine;
   const area = dd? dd.area : partes(id).area;
   S.acc = S.acc || [];
-  if(!S.acc.find(a=> a.key===keyAcc)){
-    S.acc.push({key:keyAcc, cine, area, eq: nombreDe(it), comp: nombre,
+  // obsoleto = reemplazo → si es All-in-One, se pregunta cómo se compra
+  let forma = null;
+  if(esAIO(nombre)) forma = await elegirFormaAIO();
+  const compAccion = (forma==='piezas') ? 'Monitor principal' : nombre;
+  const ex = S.acc.find(a=> a.key===keyAcc);
+  if(ex){
+    ex.comp = compAccion; ex.monto = precioDe(compAccion);
+    ex.estado = 'pendiente'; ex.autor = AUTOR();
+    ex.nota = 'obsoleto'+(nota? ': '+nota : ' · reemplazo');
+  } else {
+    S.acc.push({key:keyAcc, cine, area, eq: nombreDe(it), comp: compAccion,
       puesto: esComp? '' : (it.p||''), tipo:'comprar',
-      monto: precioDe(nombre)||'', cant:1, estado:'pendiente',
+      monto: precioDe(compAccion)||'', cant:1, estado:'pendiente',
       nota:'obsoleto'+(nota? ': '+nota : ' · reemplazo'),
       autor:AUTOR(), ts:new Date().toISOString()});
   }
+  if(forma==='piezas') accHija(keyAcc, 'CPU', 'segunda pieza del reemplazo (monitor táctil + CPU)');
+  else cerrarHijas(keyAcc, 'se compra como All-in-One (una pieza)');
   save(); render(); if(despues) despues();
   flash('Marcado obsoleto ✓ · '+nombre+' entra en compras');
+}
+/* All-in-One: si se REPARA, se repara el mismo y NO se pregunta.
+   Solo se pregunta cuando es REEMPLAZO (falta, sustituir u obsoleto). */
+const esAIO = n=> /all[\s\-_]*in[\s\-_]*one|\baio\b/i.test(String(n||''));
+async function elegirFormaAIO(){
+  const rv = await pedir({titulo:'¿Cómo se reemplaza el All-in-One?',
+    sub:'Es una compra de reemplazo — si la acción es Reparar, se repara el mismo.',
+    campos:[{id:'forma', type:'select', label:'Se pide',
+      opciones:[['piezas','Monitor táctil + CPU (dos piezas)'],
+                ['aio','1 All-in-One (una pieza)']]}],
+    ok:'Continuar'});
+  return (rv && rv.forma==='aio') ? 'aio' : 'piezas';
+}
+/* Segunda pieza: acción hermana ligada a la principal (padre). Llave manual
+   (m-…) para que repararAcc la respete, y se cierra junto con la principal. */
+function accHija(padre, comp, nota){
+  S.acc = S.acc || [];
+  const ex = S.acc.find(a=> a.padre===padre && a.comp===comp);
+  if(ex){ ex.estado='pendiente'; ex.monto=precioDe(comp); ex.nota=nota; ex.autor=AUTOR(); return ex; }
+  const p = S.acc.find(a=> a.key===padre) || {};
+  const nueva = {key:'m-'+Date.now()+'-'+Math.random().toString(36).slice(2,6),
+    padre, cine:p.cine, area:p.area, eq:p.eq||'', comp, puesto:p.puesto||'',
+    tipo:'comprar', monto:precioDe(comp), cant:1, estado:'pendiente', nota,
+    autor:AUTOR(), ts:new Date().toISOString()};
+  S.acc.push(nueva);
+  return nueva;
+}
+function cerrarHijas(padre, nota){
+  let n = 0;
+  (S.acc||[]).forEach(a=>{
+    if(a.padre===padre && (a.estado==='pendiente'||a.estado==='cotizado')){
+      a.estado='ejecutado'; a.cierre=new Date().toISOString(); a.autor=AUTOR(); a.nota=nota; n++;
+    }});
+  return n;
 }
 function esAreaBorrada(clave){ return Array.isArray(S.areaBorr) && S.areaBorr.indexOf(clave)>=0; }
 
@@ -2644,7 +2739,7 @@ function abrirModal(id, idx){
   document.getElementById('modal').classList.add('on');
 }
 function cerrarModal(){ document.getElementById('modal').classList.remove('on'); mPend=null; }
-function confirmarModal(){
+async function confirmarModal(){
   if(!mPend) return;
   const det = document.getElementById('m-det').value.trim();
   const enCD = esCentroDeDatos(mPend.id);
@@ -2658,18 +2753,29 @@ function confirmarModal(){
   if(nuevo===viejo && !causa){ cerrarModal(); return; }   // no cambió nada
   const key = id+'|'+idx;
   if(nuevoDe(id, idx, nuevo, causa, rev)){
+    // REEMPLAZO de un All-in-One → ¿una pieza o dos?  (Reparar: no se pregunta)
+    let forma = null;
+    const nomComp = etiquetaComp(id, idx);
+    if(tipo==='comprar' && esAIO(nomComp)) forma = await elegirFormaAIO();
+    const compAccion = (forma==='piezas') ? 'Monitor principal' : nomComp;
     S.accionComp[key] = tipo;                 // decide qué va al plan
     const existente = S.acc.find(a=>a.key===key);
-    if(existente){ existente.tipo = tipo; existente.nota = causa; existente.autor=AUTOR(); }
+    if(existente){
+      existente.tipo = tipo; existente.nota = causa; existente.autor=AUTOR();
+      if(forma==='piezas'){ existente.comp = 'Monitor principal';
+                            existente.monto = precioDe('Monitor principal'); }
+    }
     else {
       const it = findItem(id); const p = partes(id);
       // equipos nuevos (id sin tubos): el cine real sale de dondeEsta
       const dA = id.indexOf('|')<0 ? dondeEsta(id) : null;
       S.acc.push({key, cine: dA? dA.c.c : p.cine, area: dA? dA.area : p.area,
-                  eq: it?it.n:'', comp: etiquetaComp(id,idx),
-        puesto: (it&&it.p)||'', tipo, monto: precioDe(etiquetaComp(id,idx)), cant:1,
+                  eq: it?it.n:'', comp: compAccion,
+        puesto: (it&&it.p)||'', tipo, monto: precioDe(compAccion), cant:1,
         estado:'pendiente', nota: causa, autor:AUTOR(), ts:new Date().toISOString()});
     }
+    if(forma==='piezas') accHija(key, 'CPU', 'segunda pieza del reemplazo (monitor táctil + CPU)');
+    else cerrarHijas(key, 'se compra como All-in-One (una pieza)');
   }
   save(); cerrarModal(); render();
   flash(rev==='pendiente' ? 'Guardado · en revisión del coordinador' : 'Guardado ✓');
@@ -3657,7 +3763,7 @@ document.addEventListener('click', async ev=>{
     if(it && it.c){ flash('Este equipo tiene componentes: marca la obsolescencia componente por componente (dale click al componente)'); return; }
     if(esObsoleto(id)){
       delete S.obsoletos[id];
-      (S.acc||[]).forEach(a=>{ if(a.key===id+'|obsoleto' &&
+      (S.acc||[]).forEach(a=>{ if((a.key===id+'|obsoleto' || a.padre===id+'|obsoleto') &&
         (a.estado==='pendiente'||a.estado==='cotizado')){
           a.estado='ejecutado'; a.cierre=new Date().toISOString();
           a.autor=AUTOR(); a.nota='dejó de ser obsoleto'; }});
@@ -3693,6 +3799,8 @@ document.addEventListener('click', async ev=>{
   if(t.id==='ed-si'){ guardarEdicion(); return; }
   const qc = t.closest('[data-qcomp]');
   if(qc){ quitarComponente(+qc.dataset.qcomp); return; }
+  const cord = t.closest('[data-compord]');
+  if(cord){ reordenarComp(Number(cord.dataset.compord)); return; }
   if(t.id==='ed-addcomp'){ agregarComponente(); return; }
   if(t.id==='ed-borrar'){ borrarEquipo(); return; }
   if(t.id==='ed-retirar'){ retirarEquipo(); return; }

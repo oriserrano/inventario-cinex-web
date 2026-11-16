@@ -557,6 +557,15 @@ textarea:focus-visible, input:focus-visible{
   border-radius:11px;font:inherit;font-size:14px;background:#fff;color:var(--ink);
   resize:vertical;min-height:120px;box-sizing:border-box}
 
+/* ---------- Orden de componentes en la ficha ---------- */
+.ordenc{display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap}
+.ordenc .ad{flex:0 0 100%}
+.ordenc select{flex:1;min-width:150px;min-height:42px;padding:8px 10px;
+  border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13.5px;
+  background:#fff;color:var(--ink)}
+.ordenc button{min-height:42px;padding:9px 14px;border-radius:10px;font-size:13.5px;font-weight:700}
+.ordenc button:hover{border-color:var(--brand);color:var(--brand)}
+
 /* ---------- Barra flotante al hacer scroll ---------- */
 .sbar{position:fixed;left:50%;bottom:14px;z-index:70;display:flex;gap:4px;align-items:center;
   background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 7px;
