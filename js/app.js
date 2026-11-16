@@ -2693,8 +2693,9 @@ function fichaHTML(id, idx){
     fila('Equipo', `${nombreDe(it)}${puestoDe(it)? ' · puesto '+puestoDe(it):''}`,
         '', ed(`data-fed="${id}"`)),
     fila('Ubicación', d? `${d.area} · ${d.c.n}` : ''),
-    fila('Modelo', [modEq? 'equipo: '+modEq:'', modCh? 'componente: '+modCh:'']
-        .filter(Boolean).join(' · '), '', ed(`data-mod="${id}"`)),
+    // Modelo = del COMPONENTE (si no tiene, «—»); el del equipo se edita en su ficha
+    fila('Modelo', ch? (modCh || '—') : (modEq || '—'), '',
+        ed(ch? `data-cmod="${id}|${idx}"` : `data-mod="${id}"`)),
     fila('Nota', nota.replace(/</g,'&lt;'), '', ed(`data-note="${id}"`)),
     fila('Observación inv.', obsVis, '', ed(`data-fobs="${id}"`)),
     planRow,
