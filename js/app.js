@@ -3069,8 +3069,9 @@ function mezclarClave(k, remo, loc){
     });
     return out;
   }
-  // escalares / ausencias
-  if(!enBase) return (loc !== undefined)? loc : remo;
+  // escalares / sin base (equipo recién limpiado): manda la NUBE
+  // → así este dispositivo baja todo lo que ya se hizo en otro equipo
+  if(!enBase) return (remo !== undefined)? remo : loc;
   if(eq3(b, remo)) return (loc !== undefined)? loc : undefined;
   if(eq3(b, loc))  return remo;
   return (loc !== undefined)? loc : undefined;
@@ -3079,6 +3080,11 @@ function mezclarClave(k, remo, loc){
 function mezclarEstRemoto(remo){
   if(!remo || typeof remo!=='object') return;
   const base = baseSync();
+  // sin base: este equipo no tiene nada propio que proteger → adopta la nube
+  if(!base || !base.est){
+    Object.keys(remo).forEach(id=>{ S.est[id] = remo[id]; });
+    return;
+  }
   Object.keys(remo).forEach(id=>{
     const r = remo[id] || {};
     const l = (S.est && S.est[id]) || null;
