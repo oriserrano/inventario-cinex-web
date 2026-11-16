@@ -2788,7 +2788,9 @@ async function confirmarModal(){
   const tacCambio = !!mPend.tactilSel && mPend.tactilSel !== tacAhora;
   if(nuevo===viejo && !causa && !tacCambio){ cerrarModal(); return; }   // no cambió nada
   const key = id+'|'+idx;
-  if(nuevoDe(id, idx, nuevo, causa, rev)){
+  const huboCambio = nuevoDe(id, idx, nuevo, causa, rev);
+  // Operativo: no genera acción en el plan (ni siquiera si el selector quedó en Reparar)
+  if(huboCambio && nuevo !== 'ok'){
     // REEMPLAZO de un All-in-One → ¿una pieza o dos?  (Reparar: no se pregunta)
     let forma = null;
     const nomComp = etiquetaComp(id, idx);
