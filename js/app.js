@@ -1422,6 +1422,10 @@ function quitarComponente(ci){
       });
       S.obsoletos = nu;
     }
+    // queda registrado: ninguna unión con la nube lo vuelve a traer
+    S.compsBorrados = S.compsBorrados || [];
+    const reg = it.id + '|' + nombre;
+    if(S.compsBorrados.indexOf(reg) < 0) S.compsBorrados.push(reg);
     guardarComps(it);
     save(); pintarCompsEd(); render();
     flash(nombre+' quitado del equipo ✓');
@@ -3363,8 +3367,13 @@ function unirCompsArr(a, b){                       // componentes: unión por no
 function unirCompsRemoto(rc){
   if(!rc || typeof rc!=='object') return;
   S.comps = S.comps || {};
+  const br = S.compsBorrados || [];          // componentes quitados: no resucitan
   new Set([...Object.keys(S.comps), ...Object.keys(rc)]).forEach(id=>{
-    S.comps[id] = unirCompsArr(S.comps[id], rc[id]);
+    let arr = rc[id];
+    if(Array.isArray(arr) && br.length){
+      arr = arr.filter(c=> br.indexOf(id + '|' + (c && c.n)) < 0);
+    }
+    S.comps[id] = unirCompsArr(S.comps[id], arr);
   });
 }
 function unirEstRemoto(re){                        // estados: por equipo y por índice, lo local pisa
