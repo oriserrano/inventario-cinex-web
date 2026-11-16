@@ -659,19 +659,107 @@ function queHacerIdeales(){
 }
 /* ===== Compras e inversión POR ÁREA (taquilla, dulcería, centro de datos…) =====
    Saliendo de las acciones del plan que aún no se ejecutaron. */
+/* Todos los nombres de componentes del inventario (más el catálogo):
+   así cada componente —incluso los del centro de datos— puede tener su costo. */
+function nombresComponentes(){
+  const set = new Set();
+  const meter = it=>{
+    if(!it) return;
+    if(it.c && it.c.length) it.c.forEach(ch=> ch.n && set.add(ch.n));
+    else if(it.n) set.add(it.n);
+  };
+  DATA.cines.forEach(c=> c.ar.forEach(a=> (a.v||[]).forEach(meter)));
+  Object.values(S.nuevos||{}).flat().forEach(meter);
+  CATALOGO.forEach(n=> set.add(n));
+  return [...set]
+    .filter(n=> n && !/^Puesto\s*\d+/i.test(n) && !/sin equipo/i.test(n) && !/^\d+$/.test(n))
+    .sort((a,b)=> a.localeCompare(b,'es'));
+}
+function preciosHTML(){
+  const nombres = nombresComponentes();
+  return `
+    <div class="bd">
+      <div class="ad" style="margin-bottom:9px">Precio de <b>cada componente</b> (queda en compras,
+        plan y dashboard). Deja vacío si aún no lo cotizas.</div>
+      <div class="rowbtn" style="margin-top:0"><button data-rellenar>Rellenar montos vacíos</button></div>
+      <div class="carga-masiva">
+        <div class="sb">Carga masiva — pega aquí (desde Excel: columnas nombre y precio)</div>
+        <textarea id="prec-masivo" rows="4" placeholder="Impresora fiscal	1017
+TV55&quot;	450
+Servidor	1800
+Disco Duros	180"></textarea>
+        <div class="rowbtn">
+          <button class="btn-p" id="prec-aplicar">Aplicar precios</button>
+          <button id="prec-limpiar">Limpiar</button>
+        </div>
+      </div>
+      <div class="precgrid">${nombres.map(n=>`
+        <label class="prec"><span>${n}</span>
+          <input type="number" inputmode="decimal" data-prec="${n}"
+            value="${precioDe(n)===''?'':precioDe(n)}" placeholder="US$"></label>`).join('')}</div>
+      <div class="ad" style="margin-top:9px">${nombres.length} componentes con costo editable ·
+        los del centro de datos y los TV por pulgadas (43&quot; a85&quot;) ya están listos para llenar</div>
+    </div>`;
+}
+function statsVisitas(){
+  const v = S.visitas || [];
+  const cines = new Set(v.map(x=> x.cine).filter(Boolean));
+  const gente = new Set(v.map(x=> x.visitante).filter(Boolean));
+  const pct = v.length
+    ? Math.round(v.reduce((s,x)=> s + ((x.check||[]).length / Math.max(1, CHECK_VISITA.length)), 0) / v.length * 100)
+    : 0;
+  return {n:v.length, cines:cines.size, gente:gente.size, pct};
+}
+function resumenVisitasHTML(){
+  const v = S.visitas || [];
+  if(!v.length) return '<div class="bd"><div class="empty-note">Todavía no hay visitas registradas.</div></div>';
+  const s = statsVisitas();
+  const porCine = {}, porPersona = {};
+  v.forEach(x=>{
+    porCine[x.cine||'?'] = (porCine[x.cine||'?']||0)+1;
+    porPersona[x.visitante||'?'] = (porPersona[x.visitante||'?']||0)+1;
+  });
+  const fila = ([k,n])=> `<tr><td><b>${k}</b></td><td class="num">${n}</td></tr>`;
+  const ultimas = v.slice(-6).reverse();
+  return `<div class="bd">
+    <div class="kpis" style="margin-bottom:12px">
+      <span><b>${s.n}</b> visitas</span>
+      <span><b>${s.cines}</b> cines visitados</span>
+      <span><b>${s.gente}</b> personas</span>
+      <span><b>${s.pct}%</b> checklist cumplido</span>
+    </div>
+    <div class="grid2">
+      <div><div class="ad" style="font-weight:800;margin-bottom:6px">Por cine</div>
+        <div class="tbl-wrap"><table class="tbl"><tbody>${
+          Object.entries(porCine).sort((a,b)=> b[1]-a[1]).map(fila).join('')}</tbody></table></div></div>
+      <div><div class="ad" style="font-weight:800;margin-bottom:6px">Por persona</div>
+        <div class="tbl-wrap"><table class="tbl"><tbody>${
+          Object.entries(porPersona).sort((a,b)=> b[1]-a[1]).map(fila).join('')}</tbody></table></div></div>
+    </div>
+    <div class="ad" style="font-weight:800;margin:14px 0 6px">Últimas visitas</div>
+    ${ultimas.map(x=>`<div class="vitem"><div class="vh">
+        <span><b>${fechaBonita(x.fecha)}</b> · ${x.cine} · ${x.visitante||'—'}</span>
+        <span class="ad">${(x.check||[]).length}/${CHECK_VISITA.length} checklist</span></div>
+      ${(x.areas&&x.areas.length)? `<div class="vareas">${x.areas.join(' · ')}</div>`:''}</div>`).join('')}
+  </div>`;
+}
 function datosPorArea(cine){
   const map = {};
+  const nueva = k=> map[k] || (map[k] = {area:k, comprar:0, reparar:0, revisar:0,
+                                          montoComprar:0, montoReparar:0, monto:0, n:0});
+  // todas las áreas de todos los cines aparecen — aunque hoy no falte nada en ellas
+  DATA.cines.forEach(c=>{ if(cine && c.c!==cine) return;
+    (c.ar||[]).forEach(a=> nueva(a.a)); });
   (S.acc||[]).filter(a=> a.estado!=='ejecutado' && (!cine || a.cine===cine)).forEach(a=>{
-    const k = a.area || 'Sin área';
-    const o = map[k] || (map[k] = {area:k, comprar:0, reparar:0, revisar:0,
-                                   montoComprar:0, montoReparar:0, monto:0, n:0});
+    const o = nueva(a.area || 'Sin área');
     const cant = Number(a.cant)||1, monto = Number(a.monto)||0;
     if(a.tipo==='comprar'){ o.comprar += cant; o.montoComprar += monto; }
     else if(a.tipo==='reparar'){ o.reparar += cant; o.montoReparar += monto; }
     else o.revisar += cant;
     o.monto += monto; o.n++;
   });
-  const arr = Object.values(map).sort((a,b)=> b.monto - a.monto || b.n - a.n);
+  const arr = Object.values(map)
+    .sort((a,b)=> b.monto - a.monto || b.n - a.n || a.area.localeCompare(b.area,'es'));
   const totMonto = arr.reduce((s,x)=> s+x.monto, 0);
   return {arr, totMonto,
           totComprar: arr.reduce((s,x)=> s+x.comprar, 0),
@@ -728,6 +816,8 @@ function dashboard(){
     <div><b>${fmt(d.tot)}</b><span>Inversión planificada</span></div>
     <div><b>${d.totComprar}</b><span>Piezas a comprar</span></div>
     <div><b>${d.totReparar}</b><span>Piezas a reparar</span></div>
+    <div><b>${statsVisitas().n}</b><span>Visitas registradas${
+      statsVisitas().n? ' · '+statsVisitas().pct+'% checklist' : ''}</span></div>
   </div>
 
   <div class="card secc"><div class="hd"><h2>Espacios disponibles por cine</h2>
@@ -1721,7 +1811,12 @@ const EST_PLAN = [['pendiente','Pendiente'],['cotizado','Cotizado'],
 const fmt = n => '$'+Number(n||0).toLocaleString('es-VE',{maximumFractionDigits:0});
 const CATALOGO = ['CPU','Monitor principal','Monitor secundario','Impresora fiscal',
   'Dispositivo fiscal','Escáner','Gaveta','Pinpad','UPS/Regulador','Punto de red','TV','Tablet',
-  'Estación completa'];
+  'Estación completa',
+  // Centro de datos
+  'Servidor','Switch','Router','UPS APC 2KVA','Supresor de picos','Patch panel','Mini PC',
+  'Memoria','Disco Duros','Batería de Raid','Fuentes de poder',
+  // TV por pulgadas (de43" a85": lo más grande que hemos comprado)
+  'TV43"','TV50"','TV55"','TV65"','TV75"','TV85"'];
 function precioDe(n){
   if(S.precios[n]!==undefined && S.precios[n]!=='') return S.precios[n];
   // la acción se guarda como "Estación completa (puesto3)"
@@ -2115,29 +2210,7 @@ function queHacer(){
     </div></div>
   </div>
 
-  <details class="grupo precios"><summary data-gk="__precios">
-    <span class="gk">Precios de referencia</span>
-    <span class="gnum">${CATALOGO.length} equipos</span>
-    <span class="gmonto">${fmt(suma(S.acc.filter(a=>C==='todos'||a.cine===C)))}</span>
-    <span class="gcar">▾</span></summary>
-    <div class="gbd">
-    <div class="rowbtn" style="margin-top:0"><button data-rellenar>Rellenar montos vacíos</button></div>
-      <div class="carga-masiva">
-        <div class="sb">Carga masiva — pega aquí (desde Excel: copia las columnas nombre y precio)</div>
-        <textarea id="prec-masivo" rows="4" placeholder="Impresora fiscal	1017
-Monitor secundario	120
-Escáner = 45
-Gaveta100"></textarea>
-        <div class="rowbtn">
-          <button class="btn-p" id="prec-aplicar">Aplicar precios</button>
-          <button id="prec-limpiar">Limpiar</button>
-        </div>
-      </div>
-      <div class="precgrid">${CATALOGO.map(n=>`
-        <label class="prec"><span>${n}</span>
-          <input type="number" inputmode="decimal" data-prec="${n}"
-            value="${precioDe(n)===''?'':precioDe(n)}" placeholder="US$"></label>`).join('')}</div>
-    </div></details>`;
+`;
 }
 
 /* ================= GESTIÓN (MÓDULOS) ================= */
@@ -2184,7 +2257,8 @@ function gestion(){
     </div>`).join('') || '<div class="empty-note">Sin movimientos todavía.</div>';
 
   const sec = vista.gseccion || (ROL()==='coordinacion' ? "aprob" : "tablero");
-  const GSEC = [["tablero","Tablero"],["aprob","Aprobaciones"],["usuarios","Usuarios"],
+  const GSEC = [["tablero","Tablero"],["aprob","Aprobaciones"],["precios","Precios"],
+                ["visitas","Visitas"],["usuarios","Usuarios"],
                 ["auditoria","Auditoría"],["personas","Personas"],["exportar","Exportar"]];
 
   // cifras del tablero gerencial
@@ -2341,6 +2415,10 @@ function gestion(){
     <div class="bd">${auditHTML}</div></div>`,
     personas: `<div class="card secc"><div class="hd"><h2>Personas</h2></div>
     <div class="bd">${personasHTML}</div></div>`,
+    precios: `<div class="card secc"><div class="hd"><h2>Precios de referencia</h2>
+      <span class="ad">costo de cada componente · compras, plan y dashboard</span></div>${preciosHTML()}</div>`,
+    visitas: `<div class="card secc"><div class="hd"><h2>Resumen de visitas</h2>
+      <span class="ad">estadística general</span></div>${resumenVisitasHTML()}</div>`,
     exportar: `<div class="card secc"><div class="hd"><h2>Exportar</h2></div><div class="bd">
     <div class="rowbtn">
       <button class="btn-p" id="exp-todo2">Inventario</button>
