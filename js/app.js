@@ -1461,13 +1461,17 @@ function detalleLinea(it, ci){
   const movs = movsDe(it.id, ci);
   if(!movs.length && (est==='ok' || est==='pend' || est==='falta')) return '';
   const m = movs[0];
+  const esOk = !!m && m.a==='ok';
+  // Operativo no necesita causa: nunca se avisa «sin causa» en un cambio a ok
+  const avisa = !!m && !m.causa && !esOk;
   const causa = (m && m.causa) ? m.causa
+              : esOk ? (LABEL[m.a] || 'Operativo')
               : (m ? ((LABEL[m.a]||m.a||'cambio')+' · sin causa') : 'sin causa anotada');
   const quien = m && m.autor ? m.autor.split(' ')[0] : '';
   const fecha = m ? fechaCorta(m.ts) : '';
   return `<button type="button" class="dlinea ${est||''}" data-det="${it.id}|${ci}"
       title="Ver detalle: quién lo marcó, por qué y qué sigue">
-      ⚠ ${causa}${quien? ' · '+quien:''}${fecha? ' · '+fecha:''}</button>`;
+      ${avisa? '⚠ ':''}${causa}${quien? ' · '+quien:''}${fecha? ' · '+fecha:''}</button>`;
 }
 /* ===== Detalle de incidencia: quién lo marcó, por qué y qué sigue ===== */
 function abrirDetalle(id, ci){
