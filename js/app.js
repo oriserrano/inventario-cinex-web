@@ -4161,26 +4161,8 @@ document.addEventListener('click', async ev=>{
     const nuevo = rv.e;
     if(it.c) it.c.forEach((ch,ci)=> nuevoDe(id, ci, nuevo, ''));
     else nuevoDe(id, 'e', nuevo, '');
-    if(nuevo==='ok'){
-      if(it.c) it.c.forEach((ch,ci)=> cerrarPlanSiOk(id, ci));
-      (S.acc||[]).forEach(a=>{
-        if(a.key===id+'|estacion' && (a.estado==='pendiente'||a.estado==='cotizado')){
-          a.estado='ejecutado'; a.cierre=new Date().toISOString(); a.autor=AUTOR();
-          a.nota='equipo completo operativo';
-        }});
-    }
-    // todo ausente → UNA compra de estación completa (no una por componente)
-    if(nuevo==='falta' && it.c){
-      const kE = id + '|estacion';
-      S.acc = S.acc || [];
-      if(!S.acc.find(a=> a.key===kE)){
-        const pE = partes(id); const dE = dondeEsta(id);
-        S.acc.push({key:kE, cine: dE? dE.c.c : pE.cine, area: dE? dE.area : pE.area,
-          eq: nombreDe(it), comp:'Estación completa', tipo:'comprar',
-          monto: precioDe('Estación completa'), cant:1, estado:'pendiente',
-          nota:'equipo completo ausente', autor:AUTOR(), ts:new Date().toISOString()});
-      }
-    }
+    // al volver a operativo se cierran sus acciones (el plan ya las crea solo por estado)
+    if(nuevo==='ok' && it.c) it.c.forEach((ch,ci)=> cerrarPlanSiOk(id, ci));
     save(); render();
     flash('Todo el equipo: ' + (LABEL[nuevo]||nuevo) + ' ✓');
     return;
