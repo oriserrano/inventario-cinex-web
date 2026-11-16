@@ -690,8 +690,11 @@ Servidor	1800
 Disco Duros	180"></textarea>
         <div class="rowbtn">
           <button class="btn-p" id="prec-aplicar">Aplicar precios</button>
+          <button id="prec-plantilla">⬇ Plantilla</button>
           <button id="prec-limpiar">Limpiar</button>
         </div>
+        <div class="ad" style="margin-top:7px">Aplica <b>solo las líneas que pegues</b> — nada más se
+          toca. ¿Formato? Baja la plantilla y rellénala.</div>
       </div>
       <div class="precgrid">${nombres.map(n=>`
         <label class="prec"><span>${n}</span>
@@ -3283,23 +3286,30 @@ document.addEventListener('click', async ev=>{
     flash(nombre+' creado ✓ código '+cod);
     return;
   }
+  if(t.id==='prec-plantilla'){ plantillaPrecios(); return; }
   if(t.id==='prec-aplicar'){
     const txt = document.getElementById('prec-masivo').value || '';
     if(!txt.trim()){ flash('Pega primero la lista de precios'); return; }
     const lineas = txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-    let ok = 0, malos = [];
+    const conocidos = new Set(nombresComponentes().map(n=> n.toLowerCase()));
+    let ok = 0, malos = [], desconocidos = [];
     lineas.forEach(l=>{
+      if(/^componente\b/i.test(l)) return;                    // encabezado de la plantilla
       const m = l.match(/^(.+?)[\s]*(?:=|,|;|\t)\s*([\d.,]+)\s*$/);
       if(!m){ malos.push(l); return; }
-      const nombre = m[1].trim();
+      const nombre = m[1].trim().replace(/^["']|["']$/g,'');   // por si viene entre comillas
       const val = parseFloat(m[2].replace(/\./g,'').replace(',','.'));
       if(!nombre || isNaN(val)){ malos.push(l); return; }
-      S.precios[nombre] = val;
+      S.precios[nombre] = val;                                 // SOLO esta línea cambia
       ok++;
+      if(!conocidos.has(nombre.toLowerCase())) desconocidos.push(nombre);
     });
     save(); render();
-    if(ok) flash(ok+' precio(s) aplicado(s)'+(malos.length? ' · '+malos.length+' línea(s) no reconocida(s)':' ✓'));
-    else flash('No reconocí ningún precio. Formato: nombre = monto');
+    if(ok){
+      flash(ok+' precio(s) aplicado(s) · solo esas líneas'+(malos.length? ' · '+malos.length+' no reconocida(s)':' ✓')
+        + (desconocidos.length? ' · no están en el inventario: '+desconocidos.slice(0,3).join(', ')+
+           (desconocidos.length>3? '…':'') : ''));
+    } else flash('No reconocí ningún precio. Formato: nombre + tabulador + monto (baja la plantilla)');
     return;
   }
   if(t.id==='prec-limpiar'){
@@ -3350,17 +3360,19 @@ document.addEventListener('click', async ev=>{
   if(t.id==='exp-plan'||t.id==='exp-plan2'){ exportarPlan(); return; }
   if(t.id==='exp-resumen'){ exportarResumen(); return; }
   if(t.closest('[data-rellenar]')){
-    let n = 0;
+    let n = 0, tocadas = 0;
     S.acc.forEach(a=>{
+      const antes = a.monto + '|' + a.cant;                    // solo se toca lo que estaba vacío
       if(a.monto==='' || a.monto===0){
         const p = precioDe(a.comp);
-        if(p!==''){ a.monto = p; n++; }
+        if(p!==''){ a.monto = p; }
       }
-      if(!a.cant){ a.cant = 1; n++; }
-      a.autor = AUTOR();
+      if(!a.cant){ a.cant = 1; }
+      if(a.monto + '|' + a.cant !== antes){ a.autor = AUTOR(); tocadas++; n++; }
     });
     save(); render();
-    flash(n? n+' montos rellenados ✓' : 'No hay montos vacíos');
+    flash(n? n+' montos rellenados en '+tocadas+' acción(es) · las demás no se tocaron ✓'
+           : 'No hay montos vacíos');
     return;
   }
   if(t.id==='exp-todo2'){ exportar(DATA.cines); return; }
@@ -3959,6 +3971,24 @@ document.addEventListener('change', ev=>{
 });
 
 /* ================= EXPORTAR ================= */
+function descargarTexto(nombre, txt){
+  const blob = new Blob(['\uFEFF'+txt], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function plantillaPrecios(){
+  descargarTexto('plantilla-precios-cinex.txt',
+    'Componente\tPrecio USD\r\n' +
+    'Impresora fiscal\t1017\r\n' +
+    'TV55&quot;\t450\r\n'.replace(/&quot;/g,'"') +
+    'TV85&quot;\t900\r\n'.replace(/&quot;/g,'"') +
+    'Servidor\t1800\r\n' +
+    'Disco Duros\t180\r\n' +
+    'Memoria\t95\r\n' +
+    'Gaveta\t100\r\n');
+}
 function bajar(nombre, filas){
   const csv = '\uFEFF' + filas.map(f=> f.map(x=> '"'+String(x==null?'':x).replace(/"/g,'""')+'"').join(';')).join('\r\n');
   const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
