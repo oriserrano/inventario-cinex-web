@@ -3297,7 +3297,11 @@ document.addEventListener('click', async ev=>{
       if(/^componente\b/i.test(l)) return;                    // encabezado de la plantilla
       const m = l.match(/^(.+?)[\s]*(?:=|,|;|\t)\s*([\d.,]+)\s*$/);
       if(!m){ malos.push(l); return; }
-      const nombre = m[1].trim().replace(/^["']|["']$/g,'');   // por si viene entre comillas
+      // solo se quitan comillas si envuelven TODO el nombre (export con comillas);
+      // si el nombre termina en " (TV55"), ese signo es parte del nombre y se conserva
+      let nombre = m[1].trim();
+      if(nombre.length>1 && nombre.startsWith('"') && nombre.endsWith('"') && nombre.indexOf('"',1)===nombre.length-1)
+        nombre = nombre.slice(1,-1).replace(/""/g,'"');
       const val = parseFloat(m[2].replace(/\./g,'').replace(',','.'));
       if(!nombre || isNaN(val)){ malos.push(l); return; }
       S.precios[nombre] = val;                                 // SOLO esta línea cambia
