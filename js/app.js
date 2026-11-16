@@ -2732,7 +2732,7 @@ function normalizarCRV(){
   const cv = ck;
   let hubo = false;
   ['est','comps','nomb','mod','notas','cmod','vtid','discos','retirados','obsoletos',
-   'meta','ideales','areaNombres','obs'].forEach(k=>{
+   'meta','ideales','areaNombres','obs','accionComp','puesto','orden'].forEach(k=>{
     const o = S[k]; if(!o || typeof o!=='object' || Array.isArray(o)) return;
     Object.keys(o).forEach(kk=>{ const nk = ck(kk);
       if(nk!==kk){ if(!(nk in o)) o[nk] = o[kk]; delete o[kk]; hubo = true; } });
