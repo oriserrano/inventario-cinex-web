@@ -695,7 +695,7 @@ Disco Duros	180"></textarea>
       </div>
       <div class="precgrid">${nombres.map(n=>`
         <label class="prec"><span>${n}</span>
-          <input type="number" inputmode="decimal" data-prec="${n}"
+          <input type="number" inputmode="decimal" data-prec="${n.replace(/"/g,'&quot;')}"
             value="${precioDe(n)===''?'':precioDe(n)}" placeholder="US$"></label>`).join('')}</div>
       <div class="ad" style="margin-top:9px">${nombres.length} componentes con costo editable ·
         los del centro de datos y los TV por pulgadas (43&quot; a85&quot;) ya están listos para llenar</div>
