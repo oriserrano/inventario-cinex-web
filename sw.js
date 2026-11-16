@@ -4,7 +4,7 @@
    - Iconos/manifest: caché primero (casi nunca cambian).
    - No toca peticiones a otros orígenes (Supabase, etc.). */
 
-const CACHE = 'inventario-cinex-1794803373';
+const CACHE = 'inventario-cinex-1794805282';
 const SHELL = [
   './',
   './index.html',

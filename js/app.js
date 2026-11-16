@@ -2866,37 +2866,112 @@ function normalizarCRV(){
   (S.visitas||[]).forEach(v=>{ if(v.cine==='CRV'){ v.cine = 'PCV'; hubo = true; } });
   return hubo;
 }
+/* ============ Nube: mezcla de tres vidas (no se pisa un ajuste) ============
+   base = última copia sincronizada con la nube (localStorage 'cineBase'):
+     · la nube no cambió desde la base → manda lo local (mi ajuste se queda)
+     · yo no lo cambié desde la base   → manda la nube   (su ajuste llega)
+     · los dos cambiaron               → manda lo local  (se sube el mío)      */
+function baseSync(){ try{ return JSON.parse(localStorage.getItem('cineBase')||'null'); }catch(e){ return null; } }
+function guardarBase(datos){
+  try{
+    const c = JSON.parse(JSON.stringify(datos || S));
+    ['perfil','_sync','_modif','cine','tab','gseccion','vista','planAbiertos','planLimit']
+      .forEach(k=> delete c[k]);
+    localStorage.setItem('cineBase', JSON.stringify(c));
+  }catch(e){}
+}
+function eq3(a, b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return a===b; } }
+function mezclarClave(k, remo, loc){
+  const base = baseSync();
+  const enBase = !!base && (k in base);
+  const b = enBase? base[k] : undefined;
+  // listas: unión sin pérdidas
+  if(Array.isArray(remo) || Array.isArray(loc)){
+    const out = Array.isArray(loc)? loc.slice() : [];
+    const vistos = new Set(out.map(x=> JSON.stringify(x)));
+    (Array.isArray(remo)? remo : []).forEach(x=>{ const s = JSON.stringify(x);
+      if(!vistos.has(s)){ vistos.add(s); out.push(x); } });
+    return out;
+  }
+  // mapas (precios, notas, cmod, meta, areaNombres…): la regla por subllave
+  if(remo && loc && typeof remo==='object' && typeof loc==='object'){
+    const out = {};
+    new Set([...Object.keys(remo), ...Object.keys(loc)]).forEach(kk=>{
+      const r = remo[kk], l = loc[kk];
+      const hb = enBase && b && typeof b==='object' && (kk in b);
+      if(!hb){ out[kk] = (l !== undefined)? l : r; return; }         // nacido en uno solo
+      const bb = b[kk];
+      if(eq3(bb, r)){ if(l !== undefined) out[kk] = l; return; }      // nube intacta → mío
+      if(eq3(bb, l)){ out[kk] = r; return; }                          // yo no toqué → suyo
+      if(l !== undefined) out[kk] = l;                                // conflicto → local
+    });
+    return out;
+  }
+  // escalares / ausencias
+  if(!enBase) return (loc !== undefined)? loc : remo;
+  if(eq3(b, remo)) return (loc !== undefined)? loc : undefined;
+  if(eq3(b, loc))  return remo;
+  return (loc !== undefined)? loc : undefined;
+}
+/* estados (id → {índice: estado}): la misma regla por equipo e índice */
+function mezclarEstRemoto(remo){
+  if(!remo || typeof remo!=='object') return;
+  const base = baseSync();
+  Object.keys(remo).forEach(id=>{
+    const r = remo[id] || {};
+    const l = (S.est && S.est[id]) || null;
+    if(!l || typeof l!=='object'){ if(!S.est[id]) S.est[id] = r; return; }
+    const b = (base && base.est && base.est[id]) || null;
+    const out = Object.assign({}, l);
+    Object.keys(r).forEach(i=>{
+      if(!b || !(i in b)){ if(out[i]===undefined) out[i] = r[i]; return; }  // recién llegado
+      if(eq3(b[i], r[i])) return;                                          // nube intacta → mi valor
+      if(eq3(b[i], l[i])) out[i] = r[i];                                   // yo no lo toqué → suyo
+    });
+    S.est[id] = out;
+  });
+}
+/* lo que NUNCA se mezcla desde la nube: perfil y preferencias de pantalla */
+const NO_NUBE = ['mov','perfil','cine','tab','gseccion','vista','planAbiertos','planLimit','_modif','_sync'];
+/* ya unidos por su propia regla (no se vuelven a tocar aquí) */
+const YA_UNIDO = ['est','comps','nuevos','cinesNuevos','visitas','retirados','borrados','areaBorr'];
+
+function fusionarTodo(r){
+  // eventos: unión por su clave compuesta
+  const vistos = new Set((S.mov||[]).map(m=> m.ts+'|'+m.id+'|'+m.de+'|'+m.a));
+  (r.mov||[]).forEach(m=>{ const k = m.ts+'|'+m.id+'|'+m.de+'|'+m.a;
+    if(!vistos.has(k)){ S.mov = S.mov||[]; S.mov.push(m); vistos.add(k); } });
+  S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
+  mezclarEstRemoto(r.est);                    // estados: por equipo e índice
+  if(r.comps) unirCompsRemoto(r.comps);       // componentes: unión por nombre
+  if(r.nuevos) unirNuevos(r.nuevos);          // equipos a mano: unión por id
+  if(r.cinesNuevos) unirCinesRemoto(r.cinesNuevos);
+  ['visitas','retirados','borrados','areaBorr'].forEach(k=>{
+    if(Array.isArray(r[k])){
+      const base = Array.isArray(S[k]) ? S[k] : [];
+      const idDe = x => (x && typeof x==='object') ? (x.id || x.fecha || x.k || JSON.stringify(x)) : String(x);
+      const v = new Set(base.map(idDe));
+      S[k] = base.concat(r[k].filter(x=> !v.has(idDe(x))));
+    }});
+  // todo lo demás (precios, notas, cmod, vtid, meta, areaNombres, qhIdeales…):
+  // tres vidas por clave — aquí era donde se revertían los ajustes
+  Object.keys(r).forEach(k=>{
+    if(NO_NUBE.indexOf(k) >= 0) return;
+    if(YA_UNIDO.indexOf(k) >= 0) return;
+    S[k] = mezclarClave(k, r[k], S[k]);
+  });
+}
 function fusionarRemoto(rem){
   const remTs = Date.parse(rem.actualizado || 0) || 0;
   const locTs = S._sync || 0;
   if(remTs <= locTs) return false;                     // lo local está más al día
   const r = rem.data || {};
-  // eventos: unión (nada se pierde)
-  const vistos = new Set((S.mov||[]).map(m=> m.ts+'|'+m.id+'|'+m.de+'|'+m.a));
-  (r.mov||[]).forEach(m=>{
-    const k = m.ts+'|'+m.id+'|'+m.de+'|'+m.a;
-    if(!vistos.has(k)){ S.mov.push(m); vistos.add(k); }
-  });
-  S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
-  // el resto del estado: lo más reciente manda
-  // el perfil NO viaja desde la nube: cada dispositivo pide su clave
-  // ideales (meta/ideales): unión por cine — lo que escribí aquí no se pierde
-  Object.keys(r).forEach(k=>{
-    if(k==='mov' || k==='perfil') return;
-    if(k==='meta' || k==='ideales'){ S[k] = Object.assign({}, r[k]||{}, S[k]||{}); return; }
-    if(k==='cinesNuevos'){ unirCinesRemoto(r.cinesNuevos); return; }
-    if(k==='nuevos'){ unirNuevos(r.nuevos); return; }
-    if(k==='cinesNuevos'){ unirCinesRemoto(r.cinesNuevos); return; }
-    if(k==='comps'){ unirCompsRemoto(r.comps); return; }
-    if(k==='est'){ unirEstRemoto(r.est); return; }
-    S[k] = r[k];
-  });
+  fusionarTodo(r);
   S._sync = remTs;
+  guardarBase(r);                                      // lo integrado queda como base
   normalizarCRV();
   return true;
 }
-/* Unión sin pérdidas: lo local pisa (estamos a punto de subirlo) y lo que falta
-   en este dispositivo llega de la base. Así nadie pisa lo del otro equipo. */
 function fusionarSeguro(rem){
   const r = rem.data || {};
   const remTs = Date.parse(rem.actualizado || 0) || 0;
@@ -2904,37 +2979,7 @@ function fusionarSeguro(rem){
   // fusiona: así lo que acabas de borrar o deshacer no vuelve de la nube.
   if(remTs <= (S._sync || 0)) return false;
   if(!r || typeof r !== 'object') return false;
-  // eventos: unión por su clave compuesta
-  const vistos = new Set((S.mov||[]).map(m=> m.ts+'|'+m.id+'|'+m.de+'|'+m.a));
-  (r.mov||[]).forEach(m=>{ const k = m.ts+'|'+m.id+'|'+m.de+'|'+m.a;
-    if(!vistos.has(k)){ S.mov.push(m); vistos.add(k); } });
-  S.mov.sort((a,b)=> String(a.ts).localeCompare(String(b.ts)));
-  // mapas por clave (claves, obsoletos, componentes, estados, renombres de área)
-  unirCompsRemoto(r.comps);          // componentes: unión por nombre (lo local manda)
-  unirEstRemoto(r.est);              // estados: por equipo e índice (lo local manda)
-  ['claves','obsoletos','areaNombres','meta','ideales'].forEach(k=>{
-    if(r[k] && typeof r[k]==='object' && !Array.isArray(r[k]))
-      S[k] = Object.assign({}, r[k], S[k] || {});   // lo local pisa; lo que falta llega
-  });
-  // equipos agregados a mano: unión por id dentro de cada cine (lo local manda)
-  unirNuevos(r.nuevos);
-  // listas simples (visitas, retirados, borrados, áreas borradas)
-  ['visitas','retirados','borrados','areaBorr'].forEach(k=>{
-    if(Array.isArray(r[k])){
-      const base = Array.isArray(S[k]) ? S[k] : [];
-      const idDe = x => (x && typeof x==='object') ? (x.id || x.fecha || x.k || JSON.stringify(x)) : String(x);
-      const v = new Set(base.map(idDe));
-      S[k] = base.concat(r[k].filter(x=> !v.has(idDe(x))));
-    }
-  });
-  // el resto (meta, hist…): lo más reciente manda. El perfil NUNCA viaja de la nube
-  const propios = ['mov','perfil','claves','obsoletos','areaNombres','comps','est','nuevos',
-                   'visitas','retirados','borrados','areaBorr',
-                   // (comps/est/nuevos ya se unieron arriba, no se pisan aquí)
-                   'meta','ideales','cinesNuevos',
-                   'cine','tab','gseccion','planAbiertos','planLimit','qhIdeales',
-                   '_modif','_sync'];
-  Object.keys(r).forEach(k=>{ if(propios.indexOf(k)<0) S[k] = r[k]; });
+  fusionarTodo(r);
   if(remTs) S._sync = Math.max(S._sync||0, remTs);
   normalizarCRV();
   return true;
@@ -2974,6 +3019,7 @@ async function sbSubir(){
     const iso = new Date().toISOString();
     const copia = JSON.parse(JSON.stringify(S));
     delete copia.perfil;              // el perfil es de este dispositivo: nunca viaja a la nube
+    ['cine','tab','gseccion','vista','planAbiertos','planLimit'].forEach(k=> delete copia[k]);
     copia._sync = Date.parse(iso);
     const cuerpo = JSON.stringify({data: copia, actualizado: iso,
       actualizado_por: (S.perfil && S.perfil.nombre) || 'sin perfil'});
@@ -2990,7 +3036,7 @@ async function sbSubir(){
             actualizado_por:(S.perfil && S.perfil.nombre)||'sin perfil'}])});
       }
     }
-    if(r.ok) S._sync = Date.parse(iso);
+    if(r.ok){ S._sync = Date.parse(iso); guardarBase(copia); }
   }catch(e){ /* sin red: se reintenta en el próximo guardado */ }
 }
 function pintarNube(){
