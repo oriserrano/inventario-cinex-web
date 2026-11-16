@@ -220,6 +220,48 @@ function conteosTotales(){
   DATA.cines.forEach(c=>{ const r=conteos(c); for(const k in t) t[k]+=(r[k]||0); });
   return t;
 }
+/* ===== ESTACIÓN FACTURABLE (trío indispensable) =====
+   CPU/AIO + Impresora fiscal + Pantalla táctil: si falta UNA, no se factura.
+   El "operativo real" de una estación = el MÍNIMO del trío, no la suma:
+   cpu+impresora sin pantalla → no vende · pantalla+impresora sin cpu → no enciende ·
+   cpu+pantalla sin impresora → no factura.  Un All-in-One cubre cpu Y pantalla. */
+const _n3 = s=> String(s||'').toLowerCase().normalize('NFD')
+  .replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+function gruposEstacion(it){
+  if(!it || it.x || RETIRADO(it) || BORRADO(it)) return null;
+  const g = {};
+  const poner = (k, est)=>{ if(est!=='ok') g[k] = est; else if(g[k]===undefined) g[k] = 'ok'; };
+  const revisa = (n, est)=>{
+    if(/all[\s\-]*in[\s\-]*one|\baio\b/.test(n)){ poner('cpu', est); poner('pan', est); }
+    else if(/^(cpu|terminal pos)$/.test(n)) poner('cpu', est);
+    else if(/impresora fiscal/.test(n)) poner('imp', est);
+    else if(/monitor principal/.test(n)) poner('pan', est);
+  };
+  if(it.c){
+    const e = S.est[it.id]||{};
+    it.c.forEach((ch,i)=> revisa(_n3(ch.n), (e[i]!==undefined)? e[i] : (ch.e||'pend')));
+  } else {
+    revisa(_n3(it.n), (S.est[it.id]||{}).e || it.e || 'pend');
+  }
+  return (g.cpu!==undefined || g.imp!==undefined || g.pan!==undefined)? g : null;
+}
+/* true/false = facturable o no · null = no es estación (no entra en la métrica) */
+function facturable(it){
+  const g = gruposEstacion(it); if(!g) return null;
+  return g.cpu==='ok' && g.imp==='ok' && g.pan==='ok';
+}
+function facturables(c){
+  let tot=0, ok=0;
+  const revisa = items=> vivos(items).forEach(it=>{
+    const r = facturable(it); if(r===null) return;
+    tot++; if(r) ok++;
+  });
+  (c? [c] : DATA.cines).forEach(cc=>{
+    cc.ar.forEach(a=> revisa(a.v));
+    Object.values(nuevosDe(cc)).forEach(revisa);
+  });
+  return {tot, ok, pct: tot? Math.round(ok/tot*100):0, malas: tot-ok};
+}
 const esMalo = x => x==='malo'||x==='rep'||x==='falta';
 function mejora(c){
   const o = {mej:0, emp:0, sin:0};
@@ -428,6 +470,7 @@ function sparkline(hist){
 /* Cuánto falta por cine para dejarlo100% operativo */
 function metaCine(c){
   let comprar = 0, reparar = 0, costo = 0, total = 0, ok = 0, pend = 0, vacias = 0;
+  let estTot = 0, estOk = 0;
   const revisar = it=>{
     if(BORRADO(it) || RETIRADO(it)) return; // borrado o retirado: no entra en la meta
     if(it.x){ vacias++; comprar++; costo += PRECIO_ESTACION; return; }
@@ -440,11 +483,12 @@ function metaCine(c){
       else if(e==='falta'){ comprar++; costo += Number(precioDe(nombres[i]))||0; }
       else if(e==='malo' || e==='rep') reparar++;
     });
+    const fr = facturable(it); if(fr!==null){ estTot++; if(fr) estOk++; }
   };
   c.ar.forEach(a=> a.v.forEach(revisar));
   Object.values(nuevosDe(c)).forEach(arr=> arr.forEach(revisar));
-  return {comprar, reparar, costo, total, ok, pend, vacias,
-          pct: total? Math.round(ok/total*100) : 0};
+  return {comprar, reparar, costo, total, ok, pend, vacias, estTot, estOk,
+          pct: estTot? Math.round(estOk/estTot*100) : (total? Math.round(ok/total*100) : 0)};
 }
 
 /* ---- indicadores del tablero ejecutivo ---- */
@@ -453,8 +497,9 @@ function avanceGlobal(){
   const cines = DATA.cines.map(c=>({c, m:metaCine(c)}));
   const enMeta = cines.filter(x=> x.m.pct>=90).length;
   const sinDatos = cines.filter(x=> x.m.total===0).length;
-  return {t, cines, enMeta, sinDatos,
-          pct: t.total? Math.round(t.ok/t.total*100) : 0};
+  const f = facturables(null);
+  return {t, cines, enMeta, sinDatos, f,
+          pct: f.tot? f.pct : (t.total? Math.round(t.ok/t.total*100) : 0)};
 }
 function topProblemas(n){
   const m = {};
@@ -529,7 +574,8 @@ function tarjetaFiltro(){
 /* ============ DASHBOARD (solo Gerencia) · se descarga en PDF ============ */
 function datosDashboard(){
   const t = conteosTotales();
-  const pctOper = t.total? Math.round(t.ok/t.total*100) : 0;
+  const f = facturables(null);
+  const pctOper = f.tot? f.pct : (t.total? Math.round(t.ok/t.total*100) : 0);
   const meta = DATA.meta || {};
   let ideal = 0, inst = 0;
   DATA.cines.forEach(c=>{ const m = meta[c.c]; if(m && m.ideal){ ideal += m.ideal; inst += (m.inst||0); } });
@@ -550,8 +596,9 @@ function datosDashboard(){
   const filasCine = DATA.cines.map(c=>{
     const r = conteos(c), m = meta[c.c] || {};
     const p = porCine[c.c] || {comprar:0, reparar:0, revisar:0, monto:0, n:0};
-    return {cod:c.c, n:c.n, p, ideal:m.ideal, disp:m.disp,
-            oper: r.total? Math.round(r.ok/r.total*100) : 0};
+    const fc = facturables(c);
+    return {cod:c.c, n:c.n, p, ideal:m.ideal, disp:m.disp, f: fc,
+            oper: fc.tot? fc.pct : (r.total? Math.round(r.ok/r.total*100) : 0)};
   }).filter(x=> x.p.n || x.ideal)
     .sort((a,b)=> (b.p.monto - a.p.monto) || (a.oper - b.oper));
 
@@ -565,7 +612,7 @@ function datosDashboard(){
   const estadosPlan = EST_PLAN.map(([k,txt])=>({k, txt,
     n:(S.acc||[]).filter(a=>a.estado===k).length,
     v:(S.acc||[]).filter(a=>a.estado===k).reduce((s,a)=> s+(Number(a.monto)||0), 0)}));
-  return {t, pctOper, ideal, inst, avance, filasCine, compras, enReparacion, tot,
+  return {t, f, pctOper, ideal, inst, avance, filasCine, compras, enReparacion, tot,
           totComprar, totReparar, estadosPlan, vivas};
 }
 /* ===== Ideales runner/ATM y estado de TV por cine ===== */
@@ -1578,6 +1625,7 @@ function itemHtml(it){
       const esCpu = nombre==='Terminal POS';
       const crit = ES_CRITICO(nombre);
       const campoVtid = nombre==='Pinpad' ? vtidHtml(it) : '';
+      const campoSerial = esImpresora(nombre) ? serialHtml(it, ci) : '';
       return `<div class="mc ${span} ${est}${crit?' crit':''}" data-comp="${it.id}|${ci}"
           ${crit? 'title="Componente crítico: afecta la facturación"' : ''}>
         <div class="mhd">
@@ -1592,6 +1640,7 @@ function itemHtml(it){
         ${nombre==='VTID' && tienePinpad ? '' :
           `<div class="mv ${val?'':'vac'}" ${esCpu? `data-mod="${it.id}"` : `data-cmod="${it.id}|${ci}"`}>${val||'+ Modelo'}</div>`}
         ${campoVtid}
+        ${campoSerial}
         ${ES_DISCO(nombre)? discosHtml(it.id, ci) : ''}
         ${detalleLinea(it, ci)}
       </div>`;
@@ -1703,6 +1752,17 @@ function cineVista(c){
     <span style="font-size:11px;color:var(--mut)">${c.c}</span>
     <span style="flex:1"></span>
     <button class="btn-p" id="exp-cine">⬇ Excel</button>
+  </div>
+  <div class="card secc" style="margin:10px 12px 0">
+    <div class="hd"><h2>Razón social</h2>
+      <span class="ad">por área · facturación${Object.keys(S.razon||{}).some(k=>k.indexOf(c.c+'|')===0)? '' : ' · sin registrar'}</span></div>
+    <div class="bd">${todasAreas.map(a=>{
+      const v = (S.razon||{})[c.c+'|'+a.nombre];
+      return `<div class="frow2"><span>${a.nombre}</span>
+        <b>${v || '<i class="ad">—</i>'}</b>
+        <button class="mini" data-razon="${c.c}|${a.nombre}"
+          title="Editar razón social de ${a.nombre}">✎</button></div>`;
+    }).join('')}</div>
   </div>
   <div class="counts counts7">
     <div><b>${nEquipos}</b><span>Equipos</span></div>
@@ -2189,8 +2249,11 @@ function queHacer(){
   }
   if(!acordeon) acordeon = '<div class="empty-note">Sin acciones para este filtro.</div>';
 
+  const fcQH = facturables(C==='todos'? null : (DATA.cines.find(x=>x.c===C)||null));
   return `
   <div class="kpi">
+    <div title="Trío indispensable: CPU/AIO + Impresora fiscal + Pantalla táctil"
+      ><b>${fcQH.ok}/${fcQH.tot}</b><span>Estaciones facturables</span></div>
     <div><b>${fmt(total)}</b><span>Total estimado</span></div>
     <div><b>${fmt(suma(S.acc.filter(a=>a.estado==='pendiente')))}</b><span>Pendiente</span></div>
     <div><b>${fmt(suma(S.acc.filter(a=>a.estado==='ejecutado')))}</b><span>Ejecutado</span></div>
@@ -2640,6 +2703,12 @@ async function toggleObsoleto(clave, despues){
 const esAIO = n=> /all[\s\-_]*in[\s\-_]*one|\baio\b/i.test(String(n||''));
 /* Táctil: un All-in-One o un Monitor principal pueden estar «operativos» con el
    táctil malo (lo usan con mouse). Se registra aparte y, si está malo, genera compra. */
+const esImpresora = n=> /impresora fiscal/i.test(String(n||''));
+function serialDe(id, idx){ return (S.serial||{})[id+'|'+idx] || ''; }
+function serialHtml(it, ci){
+  const s = serialDe(it.id, ci);
+  return `<div class="mv ${s?'':'vac'}" data-serial="${it.id}|${ci}">${s || '+ Serial'}</div>`;
+}
 const esTactil = n=> /all[\s\-_]*in[\s\-_]*one|\baio\b|monitor principal|t[aá]ctil/i.test(String(n||''));
 function tacDe(id, idx){ return (S.tactil||{})[id+'|'+idx] || ''; }
 function esPrimordial(id){ return !!(S.primordial||{})[id]; }
@@ -2684,6 +2753,7 @@ function fichaHTML(id, idx){
   const ch = (!esSimple && it.c[idx]) ? it.c[idx] : null;
   const modEq = modeloDe(it) || '';
   const modCh = ch? valorComp(it, idx, ch) : '';
+  const nomCompRow = etiquetaComp(id, idx);
   const nota = S.notas[id] || '';
   const obs = (S.obs && Object.prototype.hasOwnProperty.call(S.obs, id))
     ? S.obs[id] : (it.o || '');
@@ -2718,6 +2788,9 @@ function fichaHTML(id, idx){
     // Modelo = del COMPONENTE (si no tiene, «—»); el del equipo se edita en su ficha
     fila('Modelo', ch? (modCh || '—') : (modEq || '—'), '',
         ed(ch? `data-cmod="${id}|${idx}"` : `data-mod="${id}"`)),
+    ...(esImpresora(nomCompRow)
+      ? [fila('Serial', serialDe(id, idx) || '—', '', ed(`data-serial="${id}|${idx}"`))]
+      : []),
     fila('Nota', nota.replace(/</g,'&lt;'), '', ed(`data-note="${id}"`)),
     fila('Observación inv.', obsVis, '', ed(`data-fobs="${id}"`)),
     planRow,
@@ -3481,7 +3554,7 @@ document.addEventListener('click', async ev=>{
     return;
   }
 
-  const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],#btn-area,[data-fed],[data-fobs],[data-fplan],[data-fplannew]');
+  const editando = t.closest('[data-chip],[data-single],[data-comp],[data-ok],[data-ok-area],[data-add],[data-note],[data-mod],[data-cmod],[data-serial],[data-razon],#btn-area,[data-fed],[data-fobs],[data-fplan],[data-fplannew]');
   if(editando && !puedeEditar()){ flash('Módulo Gerencia: solo lectura'); return; }
 
   const pf = t.closest('[data-pf]');
@@ -3971,6 +4044,18 @@ document.addEventListener('click', async ev=>{
     if(rcv){ S.cmod[raw]=rcv.v.trim(); save(); render(); flash('Modelo guardado ✓'); }
     return;
   }
+  const srl = t.closest('[data-serial]');
+  if(srl){
+    const raw = srl.dataset.serial;
+    const itS = findItem(raw.slice(0, raw.lastIndexOf('|')));
+    const rcv = await pedir({titulo:'Serial de la impresora fiscal',
+      sub: itS? nombreDe(itS) : '',
+      campos:[{id:'v', label:'Serial', value: (S.serial&&S.serial[raw])||'',
+               placeholder:'Ej. HKA80-2024-0193'}], ok:'Guardar serial'});
+    if(rcv){ S.serial = S.serial||{}; S.serial[raw] = String(rcv.v||'').trim();
+      save(); render(); flash('Serial guardado ✓'); }
+    return;
+  }
   const det = t.closest('[data-det]');
   if(det){ const raw = det.dataset.det, k = raw.lastIndexOf('|');
     abrirDetalle(raw.slice(0,k), +raw.slice(k+1)); return; }
@@ -4077,6 +4162,24 @@ document.addEventListener('click', async ev=>{
     return;
   }
 
+  const razon = t.closest('[data-razon]');
+  if(razon){
+    const raw = razon.dataset.razon, kk = raw.lastIndexOf('|');
+    const codR = raw.slice(0,kk), areaR = raw.slice(kk+1);
+    const cineR = DATA.cines.find(c=>c.c===codR) || {};
+    const actual = (S.razon||{})[raw] || '';
+    const rv = await pedir({titulo:'Razón social',
+      sub: (cineR.n||codR) + ' · ' + areaR,
+      campos:[{id:'v', label:'Razón social (facturación)', value: actual,
+               placeholder:'Ej. Evenpro Cines, C.A.'}], ok:'Guardar'});
+    if(rv){
+      S.razon = S.razon||{};
+      const v = String(rv.v||'').trim();
+      if(v) S.razon[raw] = v; else delete S.razon[raw];
+      save(); render(); flash('Razón social guardada ✓');
+    }
+    return;
+  }
   const fplan = t.closest('[data-fplan]');
   if(fplan){
     const raw = fplan.dataset.fplan, k = raw.lastIndexOf('|');
