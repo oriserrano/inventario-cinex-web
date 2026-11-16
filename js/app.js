@@ -2742,7 +2742,6 @@ function normalizarCRV(){
   }
   if(Array.isArray(S.cinesNuevos)) S.cinesNuevos.forEach(c=>{
     if(c && c.c==='CRV'){ c.c = 'PCV'; hubo = true; } });
-  ['barrados'].forEach(()=>{});          // (nada)
   ['borrados','areaBorr'].forEach(k=>{
     if(Array.isArray(S[k])) S[k] = S[k].map(x=>{
       const n = cv(x); if(n!==x) hubo = true; return n; });
