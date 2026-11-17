@@ -799,7 +799,9 @@ function stockStats(){
           un: f.reduce((s,x)=> s+(Number(x.n)||0), 0),
           prov: f.filter(x=> x.ubi==='Proveedor').length,
           ofi: f.filter(x=> x.ubi==='Oficina').length,
-          cine: f.filter(x=> x.ubi && x.ubi!=='Oficina' && x.ubi!=='Proveedor' && x.ubi!=='Almacén').length};
+          cine: f.filter(x=> x.ubi && x.ubi!=='Oficina' && x.ubi!=='Proveedor' && x.ubi!=='Almacén').length,
+          faltan: f.reduce((s2,x)=> s2 + ((x.ide===undefined||x.ide==='')? 0
+                    : Math.max(0, Number(x.ide)-Number(x.n||0))), 0)};
 }
 /* Movimientos automaticos: malo -> a la lista (en su cine); en reparacion ->
    Proveedor; retirado -> Oficina; si vuelve a operar y lo creó el sistema,
@@ -849,6 +851,7 @@ function stockVista(){
         <span class="kpi-f"><b style="color:#0b5cad">${s.cine}</b> en cine</span>
         <span class="kpi-f"><b style="color:#9a6d00">${s.prov}</b> en proveedor</span>
         <span class="kpi-f"><b>${s.ofi}</b> en oficina</span>
+        <span class="kpi-f" style="${s.faltan? 'color:var(--mal)':''}"><b>${s.faltan}</b> por llegar al ideal</span>
       </div>
       ${stockHTML()}
     </div></div>`;
@@ -891,7 +894,8 @@ function stockHTML(){
     ${filas.length? `<div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Componente</th><th>Modelo</th><th>Serial</th><th>Equipo</th>
         <th>Cine</th><th>Ubicación</th><th>Fecha</th><th>Próxima acción</th>
-        <th class="num">Cant.</th>${puede? '<th></th>':''}</tr></thead>
+        <th class="num">Cant.</th><th class="num">Ideal</th><th class="num">Faltan</th>
+        ${puede? '<th></th>':''}</tr></thead>
       <tbody>${filas.map(x=>`<tr>
         <td><b>${x.c}</b>${x.origen&&x.origen!=='manual'? ` <span class="badge rev" title="creado automáticamente">${x.origen==='retiro'?'RET':(x.origen==='reparacion'?'REP':'MALO')}</span>`:''}</td>
         <td>${x.m||'—'}</td>
@@ -906,7 +910,14 @@ function stockHTML(){
           <button data-stockinc="${x.uid}|-1" title="Quitar uno">−</button>`:''}
           <b style="margin:0 6px">${Number(x.n)||0}</b>${puede? `
           <button data-stockinc="${x.uid}|1" title="Agregar uno">＋</button>`:''}</td>
+        <td class="num">${(x.ide===undefined||x.ide===null||x.ide==='')? '—'
+          : `<b>${Number(x.ide)}</b>`}</td>
+        <td class="num">${(x.ide===undefined||x.ide===null||x.ide==='')? '—'
+          : (Math.max(0, Number(x.ide)-Number(x.n||0))>0
+            ? `<b style="color:var(--mal)">${Math.max(0, Number(x.ide)-Number(x.n||0))}</b>`
+            : '<span style="color:var(--ok)">0 ✓</span>')}</td>
         ${puede? `<td class="num" style="white-space:nowrap">
+          <button data-stockedit="${x.uid}" title="Editar esta fila">✏️</button>
           <select data-stockubi="${x.uid}" title="Cambiar ubicación" style="max-width:110px">
             ${STOCK_UBI_FIJAS.concat(DATA.cines.map(c=> c.c)).map(u=>
               `<option value="${u}" ${x.ubi===u?'selected':''}>${
@@ -1088,20 +1099,27 @@ function dashboard(){
         || meta[c.c].ideal===undefined).map(c=>c.n);
       return `<div class="tbl-wrap"><table class="tbl">
         <thead><tr><th>Cine</th><th class="num">Ideal</th><th class="num">Instalado</th>
-          <th class="num">Operativo</th><th class="num">Disponibles</th></tr></thead>
+          <th class="num">Operativo</th><th class="num">Pendiente</th>
+          <th>Sin equipo (a cuáles agregarle)</th></tr></thead>
         <tbody>${filas.map(x=>`<tr><td><b>${x.c.n}</b></td>
           <td class="num">${inp(x.c.c,'ideal',x.m.ideal)}</td>
           <td class="num">${inp(x.c.c,'inst',x.m.inst)}</td>
           <td class="num">${inp(x.c.c,'oper',x.m.oper)}</td>
           <td class="num"><b style="color:${x.m.disp? 'var(--mal)':'var(--ok)'}">${
             (x.m.disp===null||x.m.disp===undefined)? '—' : x.m.disp}</b></td>
+          <td>${(()=>{ const sin = itemsDeCine(x.c).filter(o=> o.it.x && !RETIRADO(o.it) && !BORRADO(o.it))
+              .map(o=> nombreArea(x.c.c, o.area)+' '+(o.it.p||o.it.n||''));
+            if(!sin.length) return '<span style="color:var(--ok)">ninguno ✓</span>';
+            const ver = sin.slice(0,5).join(', ');
+            return `<b style="color:var(--mal)">${sin.length}</b>: ${ver}` +
+                   (sin.length>5? ` <span class="ad">+${sin.length-5}</span>` : ''); })()}</td>
         </tr>`).join('')}</tbody>
         <tfoot><tr><td><b>Total</b></td><td class="num"><b>${tot.ideal}</b></td>
           <td class="num"><b>${tot.inst}</b></td><td class="num"><b>${tot.oper}</b></td>
           <td class="num"><b>${tot.disp}</b></td></tr></tfoot>
       </table></div>
       <div class="ad" style="margin-top:9px">Fuente: POS-Complejos-v3 (29/10/2025) ·
-        Disponibles = Ideal − Instalado${
+        Pendiente = Ideal − Instalado · Sin equipo = puestos sin nada instalado${
         sinMeta.length? ' · sin datos todavía: '+sinMeta.join(', ')+
           ' (toca Ideal/Instalado/Operativo para cargarlos)' : ''}</div>`; })()}
     </div></div>
@@ -2037,7 +2055,9 @@ function cineVista(c){
       return `<div class="frow2"><span>${a.nombre}</span>
         <b>${v || '<i class="ad">—</i>'}</b>
         <button class="mini" data-razon="${c.c}|${a.nombre}"
-          title="Editar razón social de ${a.nombre}">✎</button></div>`;
+          title="Editar razón social de ${a.nombre}">✎</button>
+        <button class="mini danger" data-areadel="${c.c}|${a.nombre}"
+          title="Borrar esta área del panel">🗑</button></div>`;
     }).join('')}</div>
   </div>`;
 }
@@ -4449,6 +4469,43 @@ document.addEventListener('click', async ev=>{
     save(); render(); flash('Quitado del stock ✓');
     return;
   }
+  const sedit = t.closest('[data-stockedit]');
+  if(sedit){
+    if(!stockPuede()){ flash('Solo Soporte y Gerencia editan el stock'); return; }
+    const uid = sedit.dataset.stockedit;
+    const x = (S.stock||{})[uid]; if(!x) return;
+    const cinesOps = [['','—']].concat(DATA.cines.map(c=>[c.c, c.n]));
+    const ubiOps = STOCK_UBI_FIJAS.concat(DATA.cines.map(c=> c.c))
+      .map(u=> [u, STOCK_UBI_FIJAS.indexOf(u)>=0? u : stockCineNombre(u)]);
+    const r = await pedir({titulo:'Editar stock',
+      sub: x.c + (x.eq? ' · '+x.eq : ''),
+      campos:[
+        {id:'c', label:'Componente', value:x.c||''},
+        {id:'m', label:'Modelo', value:x.m||''},
+        {id:'s', label:'Serial', value:x.s||''},
+        {id:'cine', label:'Cine', type:'select', opciones:cinesOps, value:x.cine||''},
+        {id:'ubi', label:'Ubicación', type:'select', opciones:ubiOps, value:x.ubi||'Almacén'},
+        {id:'acc', label:'Próxima acción', value:x.acc||''},
+        {id:'n', label:'Cantidad en stock', type:'number', value:String(x.n||1)},
+        {id:'ide', label:'Cantidad ideal (cuántas necesitamos)', type:'number',
+         value:(x.ide===undefined||x.ide===null)? '' : String(x.ide)},
+        {id:'nota', label:'Nota', value:x.nota||''}],
+      ok:'Guardar cambios'});
+    if(!r) return;
+    x.c = (r.c||'').trim() || x.c;
+    x.m = (r.m||'').trim();
+    x.s = (r.s||'').trim();
+    x.cine = r.cine||'';
+    x.ubi = r.ubi||'Almacén';
+    x.acc = (r.acc||'').trim();
+    x.n = Math.max(0, parseInt(r.n,10)||0);
+    x.ide = (r.ide===''||r.ide===null||r.ide===undefined)? '' : Math.max(0, parseInt(r.ide,10)||0);
+    x.nota = (r.nota||'').trim();
+    x.fecha = new Date().toISOString();
+    x.autor = AUTOR();
+    save(); render(); flash('Fila de stock actualizada ✓');
+    return;
+  }
 
   const comp = t.closest('[data-comp]');
   if(comp){ const raw = comp.dataset.comp, k = raw.lastIndexOf('|');
@@ -4716,6 +4773,7 @@ document.addEventListener('keydown', ev=>{
 document.addEventListener('change', ev=>{
   const t = ev.target;
   const d = t.dataset || {};
+  if(t && t.tagName==='SELECT'){ try{ t.blur(); }catch(e){} }   // cierra el desplegable antes de redibujar
   if(d.stockubi!==undefined){
     if(!stockPuede()){ flash('Solo Soporte y Gerencia editan el stock'); render(); return; }
     const x = (S.stock||{})[d.stockubi];
